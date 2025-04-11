@@ -1,7 +1,7 @@
 streamlit
 pandas
 numpy
-yfinance
-git+https://github.com/robertmartin8/PyPortfolioOpt.git
-scikit-learn
 matplotlib
+yfinance
+scikit-learn
+scipy
