@@ -7,4 +7,3 @@ matplotlib
 seaborn
 scikit-learn
 requests
-python-dotenv
