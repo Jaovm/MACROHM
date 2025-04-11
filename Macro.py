@@ -51,7 +51,7 @@ def optimize_portfolio(mean_returns, cov_matrix, bounds, constraints):
     return minimize(negative_sharpe, init_guess, args=(mean_returns, cov_matrix),
                     method='SLSQP', bounds=bounds, constraints=constraints)
 
-def simulate_portfolios(mean_returns, cov_matrix, num_simulations=10000, risk_free_rate=0.0):
+def simulate_portfolios(mean_returns, cov_matrix, num_simulations=500000, risk_free_rate=0.0):
     num_assets = len(mean_returns)
     results = np.zeros((num_simulations, 3 + num_assets))
     for i in range(num_simulations):
