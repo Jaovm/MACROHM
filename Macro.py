@@ -2,145 +2,132 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from datetime import date
-from sklearn.covariance import LedoitWolf
 import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn.covariance import LedoitWolf
 from scipy.optimize import minimize
 
-# Estilo
-sns.set(style="whitegrid")
+st.set_page_config(layout='wide')
 
-st.set_page_config(layout="wide")
 st.title("Otimização de Carteira com Fronteira Eficiente")
 
-# Ativos e pesos fundamentalistas
-tickers = ['AGRO3.SA', 'BBAS3.SA', 'BBSE3.SA', 'BPAC11.SA', 'EGIE3.SA',
-           'ITUB3.SA', 'PRIO3.SA', 'PSSA3.SA', 'SAPR3.SA', 'SBSP3.SA',
-           'VIVT3.SA', 'WEGE3.SA', 'TOTS3.SA', 'B3SA3.SA', 'TAEE3.SA']
+# Função robusta para baixar dados
+def download_prices(tickers, start, end):
+    data = yf.download(tickers, start=start, end=end, group_by='ticker', auto_adjust=False, threads=True)
+    adj_close = pd.DataFrame()
 
-pesos_fundamentalistas = np.array([0.10, 0.012, 0.065, 0.106, 0.05,
-                                   0.005, 0.15, 0.15, 0.067, 0.04,
-                                   0.064, 0.15, 0.01, 0.001, 0.03])
+    for ticker in tickers:
+        try:
+            if 'Adj Close' in data.columns:
+                adj_close[ticker] = data['Adj Close'][ticker]
+            elif isinstance(data[ticker], pd.DataFrame) and 'Adj Close' in data[ticker].columns:
+                adj_close[ticker] = data[ticker]['Adj Close']
+            else:
+                st.warning(f"'Adj Close' ausente para {ticker}. Ignorando.")
+        except Exception as e:
+            st.warning(f"Erro com {ticker}: {e}")
 
-data_inicio = st.date_input("Data de Início", date(2018, 1, 1))
-data_fim = st.date_input("Data de Fim", date.today())
+    adj_close.dropna(axis=1, how='all', inplace=True)
 
-def get_price_data(tickers, start, end):
-    df = yf.download(tickers, start=start, end=end, progress=False)
-    if isinstance(df.columns, pd.MultiIndex):
-        if 'Adj Close' in df.columns.levels[0]:
-            return df['Adj Close'].dropna(axis=1, how='any')
-        else:
-            st.error("Erro: 'Adj Close' não encontrado nos dados.")
-            return pd.DataFrame()
-    else:
-        if 'Adj Close' in df.columns:
-            return df[['Adj Close']].dropna()
-        else:
-            st.error("Erro: Dados inválidos retornados pelo yfinance.")
-            return pd.DataFrame()
-
-@st.cache_data
-def get_returns(tickers, start, end):
-    prices = get_price_data(tickers, start, end)
-    if prices.empty:
-        return pd.DataFrame()
-    return prices.pct_change().dropna()
-
-def portfolio_performance(weights, mean_returns, cov_matrix):
-    returns = np.dot(weights, mean_returns)
-    std = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-    sharpe = returns / std if std != 0 else 0
-    return returns, std, sharpe
-
-def optimize_portfolio(mean_returns, cov_matrix, bounds, constraint_sum):
-    num_assets = len(mean_returns)
-    args = (mean_returns, cov_matrix)
-
-    def neg_sharpe(weights, mean_returns, cov_matrix):
-        return -portfolio_performance(weights, mean_returns, cov_matrix)[2]
-
-    result = minimize(neg_sharpe, num_assets * [1. / num_assets],
-                      args=args, method='SLSQP',
-                      bounds=bounds, constraints=constraint_sum)
-
-    return result
-
-def simulate_random_portfolios(num_portfolios, mean_returns, cov_matrix):
-    results = np.zeros((3, num_portfolios))
-    weights_record = []
-    for i in range(num_portfolios):
-        weights = np.random.dirichlet(np.ones(len(mean_returns)), size=1).flatten()
-        weights_record.append(weights)
-        portfolio_return, portfolio_std, portfolio_sharpe = portfolio_performance(weights, mean_returns, cov_matrix)
-        results[0,i] = portfolio_return
-        results[1,i] = portfolio_std
-        results[2,i] = portfolio_sharpe
-    return results, weights_record
-
-if st.button("Rodar Otimização"):
-    returns = get_returns(tickers, data_inicio, data_fim)
-    if returns.empty:
+    if adj_close.empty:
+        st.error("Nenhum dado válido foi carregado.")
         st.stop()
 
-    lw = LedoitWolf()
-    cov_matrix = lw.fit(returns).covariance_
-    mean_returns = returns.mean()
+    return adj_close
 
-    num_assets = len(tickers)
+# Inputs
+tickers_input = st.text_area("Tickers (separados por vírgula)", "AGRO3.SA, BBAS3.SA, BBSE3.SA, BPAC11.SA, EGIE3.SA, ITUB3.SA, PRIO3.SA, PSSA3.SA, SAPR3.SA, SBSP3.SA, VIVT3.SA, WEGE3.SA, TOTS3.SA, B3SA3.SA, TAEE3.SA")
+tickers = [x.strip() for x in tickers_input.split(",")]
+start_date = st.date_input("Data de início", pd.to_datetime("2018-01-01"))
+end_date = st.date_input("Data final", pd.to_datetime("today"))
+
+# Pesos personalizados
+custom_weights = {}
+st.subheader("Pesos personalizados (opcional)")
+for ticker in tickers:
+    peso = st.number_input(f"Peso {ticker} (%)", min_value=0.0, max_value=100.0, value=0.0)
+    custom_weights[ticker] = peso / 100
+
+# Botão para rodar
+if st.button("Otimizar Carteira"):
+    prices = download_prices(tickers, start=start_date, end=end_date)
+    returns = prices.pct_change().dropna()
+    mean_returns = returns.mean() * 252
+
+    cov_matrix = LedoitWolf().fit(returns).covariance_
+    num_assets = len(returns.columns)
+
+    # Funções de otimização
+    def portfolio_perf(weights):
+        ret = np.dot(weights, mean_returns)
+        vol = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+        return ret, vol, ret / vol
+
+    def negative_sharpe(weights):
+        return -portfolio_perf(weights)[2]
+
+    constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - 1}]
     bounds = tuple((0, 1) for _ in range(num_assets))
-    constraint = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
+    initial = num_assets * [1. / num_assets]
 
-    result = optimize_portfolio(mean_returns, cov_matrix, bounds, constraint)
+    # Otimização
+    result = minimize(negative_sharpe, initial, method='SLSQP', bounds=bounds, constraints=constraints)
+    weights_sharpe = result.x
+    ret_sharpe, vol_sharpe, sharpe_sharpe = portfolio_perf(weights_sharpe)
 
-    max_sharpe_weights = result.x
-    max_sharpe_ret, max_sharpe_vol, _ = portfolio_performance(max_sharpe_weights, mean_returns, cov_matrix)
+    # Carteira de maior retorno
+    def negative_return(weights):
+        return -np.dot(weights, mean_returns)
 
-    fundamentalista_ret, fundamentalista_vol, fundamentalista_sharpe = portfolio_performance(
-        pesos_fundamentalistas, mean_returns, cov_matrix)
+    result_ret = minimize(negative_return, initial, method='SLSQP', bounds=bounds, constraints=constraints)
+    weights_ret = result_ret.x
+    ret_ret, vol_ret, sharpe_ret = portfolio_perf(weights_ret)
 
-    # Encontrar carteira com maior retorno esperado
-    def neg_return(weights, mean_returns, cov_matrix):
-        return -portfolio_performance(weights, mean_returns, cov_matrix)[0]
+    # Carteira personalizada (se pesos somam 1)
+    weights_custom = np.array([custom_weights[ticker] for ticker in returns.columns])
+    if np.isclose(weights_custom.sum(), 1):
+        ret_custom, vol_custom, sharpe_custom = portfolio_perf(weights_custom)
+    else:
+        weights_custom = None
 
-    result_max_ret = minimize(neg_return, num_assets * [1. / num_assets],
-                              args=(mean_returns, cov_matrix),
-                              method='SLSQP', bounds=bounds, constraints=[constraint])
-    max_return_weights = result_max_ret.x
-    max_return_ret, max_return_vol, _ = portfolio_performance(max_return_weights, mean_returns, cov_matrix)
+    # Fronteira eficiente
+    target_returns = np.linspace(mean_returns.min(), mean_returns.max(), 50)
+    frontier_vol = []
 
-    # Simulação de Monte Carlo
-    results, weights = simulate_random_portfolios(5000, mean_returns, cov_matrix)
-    max_sharpe_idx = np.argmax(results[2])
-    max_return_idx = np.argmax(results[0])
+    for target in target_returns:
+        cons = [{'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+                {'type': 'eq', 'fun': lambda x: np.dot(x, mean_returns) - target}]
+        result = minimize(lambda x: np.sqrt(np.dot(x.T, np.dot(cov_matrix, x))),
+                          initial, method='SLSQP', bounds=bounds, constraints=cons)
+        frontier_vol.append(result.fun)
 
-    plt.figure(figsize=(12, 6))
-    plt.scatter(results[1, :], results[0, :], c=results[2, :], cmap='viridis', alpha=0.3)
-    plt.colorbar(label='Sharpe Ratio')
-    plt.scatter(max_sharpe_vol, max_sharpe_ret, marker='*', color='r', s=200, label='Máx Sharpe')
-    plt.scatter(fundamentalista_vol, fundamentalista_ret, marker='X', color='orange', s=200, label='Fundamentalista')
-    plt.scatter(max_return_vol, max_return_ret, marker='^', color='green', s=200, label='Máx Retorno')
-    plt.xlabel('Risco (Volatilidade)')
+    # Gráfico
+    plt.figure(figsize=(10, 6))
+    plt.plot(frontier_vol, target_returns, label='Fronteira Eficiente', color='blue')
+    plt.scatter(vol_sharpe, ret_sharpe, marker='*', color='green', s=200, label='Máximo Sharpe')
+    plt.scatter(vol_ret, ret_ret, marker='X', color='orange', s=150, label='Maior Retorno')
+
+    if weights_custom is not None:
+        plt.scatter(vol_custom, ret_custom, marker='D', color='purple', s=100, label='Carteira Informada')
+
+    plt.xlabel('Volatilidade')
     plt.ylabel('Retorno Esperado')
     plt.legend()
-    st.pyplot(plt.gcf())
+    plt.grid(True)
+    st.pyplot(plt)
 
-    st.subheader("Resultados das Carteiras")
-    st.markdown("**Carteira com Maior Sharpe**")
-    st.dataframe(pd.DataFrame({
-        'Ticker': tickers,
-        'Peso': np.round(max_sharpe_weights * 100, 2)
-    }))
+    # Mostrar resultados
+    st.subheader("Carteira Máximo Sharpe")
+    st.dataframe(pd.DataFrame({'Peso (%)': weights_sharpe * 100}, index=returns.columns).round(2))
+    st.markdown(f"**Retorno:** {ret_sharpe:.2%} | **Volatilidade:** {vol_sharpe:.2%} | **Sharpe:** {sharpe_sharpe:.2f}")
 
-    st.markdown("**Carteira Fundamentalista**")
-    st.dataframe(pd.DataFrame({
-        'Ticker': tickers,
-        'Peso': np.round(pesos_fundamentalistas * 100, 2)
-    }))
+    st.subheader("Carteira Maior Retorno")
+    st.dataframe(pd.DataFrame({'Peso (%)': weights_ret * 100}, index=returns.columns).round(2))
+    st.markdown(f"**Retorno:** {ret_ret:.2%} | **Volatilidade:** {vol_ret:.2%} | **Sharpe:** {sharpe_ret:.2f}")
 
-    st.markdown("**Carteira com Maior Retorno Esperado**")
-    st.dataframe(pd.DataFrame({
-        'Ticker': tickers,
-        'Peso': np.round(max_return_weights * 100, 2)
-    }))
+    if weights_custom is not None:
+        st.subheader("Carteira Informada")
+        st.dataframe(pd.DataFrame({'Peso (%)': weights_custom * 100}, index=returns.columns).round(2))
+        st.markdown(f"**Retorno:** {ret_custom:.2%} | **Volatilidade:** {vol_custom:.2%} | **Sharpe:** {sharpe_custom:.2f}")
+    else:
+        st.warning("Pesos informados não somam 100%. Carteira informada não exibida.")
+               
