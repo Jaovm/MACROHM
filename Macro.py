@@ -1,138 +1,109 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
+import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.covariance import LedoitWolf
-from datetime import datetime, timedelta
+from scipy.optimize import minimize
 
 st.set_page_config(layout="wide")
+st.title("Otimização de Carteira com Fronteira Eficiente")
 
-st.title("Otimização de Carteira com Markowitz + Simulação Monte Carlo")
+# Entradas
+tickers_input = st.text_input("Tickers (separados por vírgula):", "AGRO3.SA,BBAS3.SA,BBSE3.SA,BPAC11.SA,EGIE3.SA,ITUB3.SA,PRIO3.SA,PSSA3.SA,SAPR3.SA,SBSP3.SA,VIVT3.SA,WEGE3.SA,TOTS3.SA,B3SA3.SA,TAEE3.SA")
+tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip() != ""]
 
-# Entrada de dados
-tickers_input = st.text_input("Tickers separados por vírgula", "AGRO3.SA,BBAS3.SA,BBSE3.SA,BPAC11.SA,EGIE3.SA,ITUB3.SA,PRIO3.SA,PSSA3.SA,SAPR3.SA,SBSP3.SA,VIVT3.SA,WEGE3.SA,TOTS3.SA,B3SA3.SA,TAEE3.SA")
-tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+start_date = st.date_input("Data de início", pd.to_datetime("2018-01-01"))
+end_date = st.date_input("Data de fim", pd.to_datetime("today"))
 
-start_date = st.date_input("Data de início", datetime.today() - timedelta(days=365 * 7))
-end_date = st.date_input("Data de fim", datetime.today())
-
-custom_weights_input = st.text_input("Pesos informados separados por vírgula (opcional)")
-weights_custom = None
-if custom_weights_input:
-    try:
-        weights_custom = [float(w.strip()) for w in custom_weights_input.split(",")]
-        if not np.isclose(sum(weights_custom), 1.0):
-            st.warning("A soma dos pesos informados deve ser 1.0")
-            weights_custom = None
-    except:
-        st.warning("Pesos inválidos")
-
-# Download de dados
+# Função de carregamento com tratamento robusto
 def load_data(tickers):
     try:
-        df = yf.download(tickers, start=start_date, end=end_date)["Adj Close"]
-        if isinstance(df, pd.Series):
-            df = df.to_frame()
+        raw = yf.download(tickers, start=start_date, end=end_date, group_by='ticker', auto_adjust=True)
+
+        if len(tickers) == 1:
+            df = raw.copy()
+        elif isinstance(raw.columns, pd.MultiIndex):
+            df = pd.concat([raw[t]['Close'].rename(t) for t in tickers if t in raw.columns.levels[0]], axis=1)
+        else:
+            df = raw['Adj Close']
+
         df = df.dropna()
         return df
     except Exception as e:
         st.error(f"Erro ao carregar dados: {e}")
         return None
 
-data = load_data(tickers)
+# Otimização da carteira
+def portfolio_performance(weights, mean_returns, cov_matrix, risk_free_rate=0.0):
+    returns = np.dot(weights, mean_returns)
+    std = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+    sharpe = (returns - risk_free_rate) / std
+    return returns, std, sharpe
 
-if data is not None and not data.empty:
-    returns = data.pct_change().dropna()
-    mean_returns = returns.mean() * 252
-    lw_cov = LedoitWolf().fit(returns)
-    cov_matrix = lw_cov.covariance_
+def negative_sharpe(weights, mean_returns, cov_matrix, risk_free_rate=0.0):
+    return -portfolio_performance(weights, mean_returns, cov_matrix, risk_free_rate)[2]
+
+def optimize_portfolio(mean_returns, cov_matrix, bounds, constraints):
+    num_assets = len(mean_returns)
+    init_guess = num_assets * [1. / num_assets]
+    return minimize(negative_sharpe, init_guess, args=(mean_returns, cov_matrix),
+                    method='SLSQP', bounds=bounds, constraints=constraints)
+
+def simulate_portfolios(mean_returns, cov_matrix, num_simulations=10000, risk_free_rate=0.0):
+    num_assets = len(mean_returns)
+    results = np.zeros((num_simulations, 3 + num_assets))
+    for i in range(num_simulations):
+        weights = np.random.dirichlet(np.ones(num_assets))
+        ret, std, sharpe = portfolio_performance(weights, mean_returns, cov_matrix, risk_free_rate)
+        results[i, 0] = ret
+        results[i, 1] = std
+        results[i, 2] = sharpe
+        results[i, 3:] = weights
+    return results
+
+# Carregar dados e processar
+df = load_data(tickers)
+
+if df is not None and not df.empty:
+    returns = df.pct_change().dropna()
+    mean_returns = returns.mean()
+    cov_matrix = LedoitWolf().fit(returns).covariance_
+
     num_assets = len(tickers)
+    bounds = tuple((0, 1) for _ in range(num_assets))
+    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
 
-    def portfolio_perf(weights):
-        ret = np.dot(weights, mean_returns)
-        vol = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-        sharpe = ret / vol
-        return ret, vol, sharpe
+    # Otimização
+    opt = optimize_portfolio(mean_returns, cov_matrix, bounds, constraints)
+    opt_weights = opt.x
+    opt_ret, opt_vol, opt_sharpe = portfolio_performance(opt_weights, mean_returns, cov_matrix)
 
-    # Fronteira eficiente
-    target_returns = np.linspace(mean_returns.min(), mean_returns.max(), 100)
-    frontier_vol = []
-    for r in target_returns:
-        try:
-            from scipy.optimize import minimize
-
-            constraints = (
-                {"type": "eq", "fun": lambda w: np.sum(w) - 1},
-                {"type": "eq", "fun": lambda w: np.dot(w, mean_returns) - r}
-            )
-            bounds = tuple((0, 1) for _ in range(num_assets))
-            result = minimize(lambda w: np.sqrt(np.dot(w.T, np.dot(cov_matrix, w))),
-                              x0=np.ones(num_assets) / num_assets,
-                              method='SLSQP', bounds=bounds, constraints=constraints)
-            frontier_vol.append(result.fun)
-        except:
-            frontier_vol.append(np.nan)
-
-    # Simulação Monte Carlo
-    num_portfolios = 10_000
-    results = np.zeros((3, num_portfolios))
-    weights_record = []
-
-    for i in range(num_portfolios):
-        weights = np.random.random(num_assets)
-        weights /= np.sum(weights)
-        weights_record.append(weights)
-        ret, vol, sharpe = portfolio_perf(weights)
-        results[0, i] = ret
-        results[1, i] = vol
-        results[2, i] = sharpe
-
-    # Máximo Sharpe
-    max_sharpe_idx = np.argmax(results[2])
-    ret_sharpe = results[0, max_sharpe_idx]
-    vol_sharpe = results[1, max_sharpe_idx]
-    weights_sharpe = weights_record[max_sharpe_idx]
-
-    # Maior retorno
-    max_ret_idx = np.argmax(results[0])
-    ret_ret = results[0, max_ret_idx]
-    vol_ret = results[1, max_ret_idx]
-    weights_ret = weights_record[max_ret_idx]
-
-    # Carteira informada
-    if weights_custom is not None and len(weights_custom) == num_assets:
-        ret_custom, vol_custom, sharpe_custom = portfolio_perf(weights_custom)
-    else:
-        ret_custom = vol_custom = sharpe_custom = None
+    # Simulação
+    sim = simulate_portfolios(mean_returns, cov_matrix)
+    sim_df = pd.DataFrame(sim, columns=['Retorno', 'Volatilidade', 'Sharpe'] + tickers)
 
     # Gráfico
-    plt.figure(figsize=(10, 6))
-    plt.scatter(results[1], results[0], c=results[2], cmap='viridis', alpha=0.3, label="Carteiras Aleatórias")
-    plt.plot(frontier_vol, target_returns, color='blue', label="Fronteira Eficiente")
-    plt.scatter(vol_sharpe, ret_sharpe, marker='*', color='green', s=200, label="Máximo Sharpe")
-    plt.scatter(vol_ret, ret_ret, marker='X', color='orange', s=150, label="Maior Retorno")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    scatter = ax.scatter(sim_df['Volatilidade'], sim_df['Retorno'], c=sim_df['Sharpe'], cmap='viridis', alpha=0.4)
+    ax.scatter(opt_vol, opt_ret, c='red', marker='*', s=200, label='Melhor Sharpe')
+    ax.set_title("Fronteira Eficiente - Simulações de Carteira")
+    ax.set_xlabel("Volatilidade")
+    ax.set_ylabel("Retorno Esperado")
+    ax.legend()
+    fig.colorbar(scatter, label='Sharpe')
+    st.pyplot(fig)
 
-    if weights_custom is not None:
-        plt.scatter(vol_custom, ret_custom, marker='D', color='purple', s=100, label="Carteira Informada")
+    # Exibir carteira otimizada
+    st.subheader("Carteira Otimizada (Melhor Sharpe)")
+    result_df = pd.DataFrame({'Ticker': tickers, 'Peso (%)': np.round(opt_weights * 100, 2)})
+    st.dataframe(result_df.set_index('Ticker'))
 
-    plt.xlabel("Volatilidade")
-    plt.ylabel("Retorno Esperado")
-    plt.colorbar(label="Índice de Sharpe")
-    plt.legend()
-    plt.grid(True)
-    st.pyplot(plt)
-
-    # Exibir pesos
-    st.subheader("Pesos Ótimos")
-    st.write("Carteira de Máximo Sharpe:")
-    st.dataframe(pd.DataFrame({"Ticker": tickers, "Peso": weights_sharpe}))
-
-    st.write("Carteira de Maior Retorno:")
-    st.dataframe(pd.DataFrame({"Ticker": tickers, "Peso": weights_ret}))
-
-    if weights_custom is not None:
-        st.write("Carteira Informada:")
-        st.dataframe(pd.DataFrame({"Ticker": tickers, "Peso": weights_custom}))
+    st.markdown(f"""
+        **Retorno Esperado:** {opt_ret:.2%}  
+        **Volatilidade Esperada:** {opt_vol:.2%}  
+        **Índice de Sharpe:** {opt_sharpe:.2f}
+    """)
 else:
-    st.warning("Erro ao carregar os dados. Verifique os tickers ou a conexão.")
+    st.error("Erro ao carregar os dados. Verifique os tickers ou a conexão.")
