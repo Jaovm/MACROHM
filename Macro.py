@@ -1,129 +1,127 @@
-import yfinance as yf
 import numpy as np
 import pandas as pd
+import yfinance as yf
 import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.covariance import LedoitWolf
-from scipy.optimize import minimize
 
-# Tickers e alocações fornecidos
-tickers = [
-    "AGRO3.SA", "BBAS3.SA", "BBSE3.SA", "BPAC11.SA", "EGIE3.SA",
-    "ITUB3.SA", "PRIO3.SA", "PSSA3.SA", "SAPR3.SA", "SBSP3.SA",
-    "VIVT3.SA", "WEGE3.SA", "TOTS3.SA", "B3SA3.SA", "TAEE3.SA"
-]
+# Função para carregar os dados
+def carregar_dados(tickers, start_date, end_date):
+    dados = yf.download(tickers, start=start_date, end=end_date)
+    
+    if 'Adj Close' not in dados.columns:
+        print("Erro: 'Adj Close' não encontrado nos dados.")
+        return None
+    dados = dados['Adj Close']
+    
+    # Limpeza de dados: remover colunas com todos os valores ausentes
+    dados = dados.dropna(axis=1, how='all')
+    
+    # Preencher valores ausentes (NaN) com o método forward fill
+    dados = dados.fillna(method='ffill').dropna()
+    
+    return dados
 
-pesos_informados = np.array([
-    0.10, 0.012, 0.065, 0.106, 0.05,
-    0.005, 0.15, 0.15, 0.067, 0.04,
-    0.064, 0.15, 0.01, 0.001, 0.03
-])
-
-# Baixando os dados ajustados
-def carregar_dados(tickers, anos=7):
-    try:
-        dados = yf.download(tickers, period=f"{anos}y", interval="1d", auto_adjust=True, progress=False)
-        if 'Adj Close' in dados.columns:
-            return dados['Adj Close'].dropna(how='all')
-        elif isinstance(dados, pd.DataFrame):
-            return dados.dropna(how='all')
-        else:
-            raise ValueError("Erro: 'Adj Close' não encontrado nos dados.")
-    except Exception as e:
-        raise RuntimeError(f"Erro ao carregar dados: {e}")
-
-# Estatísticas
+# Função para calcular retorno médio e matriz de covariância
 def calcular_retorno_cov(dados):
-    retornos = np.log(dados / dados.shift(1)).dropna()
-    retorno_medio_anual = retornos.mean() * 252
-    cov_matrix = LedoitWolf().fit(retornos).covariance_ * 252
+    # Calcular retornos logarítmicos diários
+    retornos = np.log(dados / dados.shift(1)).dropna(how='all')
+
+    # Remover colunas com valores NaN após o cálculo de retornos
+    retornos = retornos.dropna(axis=1, how='any')
+    
+    # Calcular o retorno médio anualizado e a matriz de covariância anualizada
+    retorno_medio_anual = retornos.mean() * 252  # 252 dias úteis no ano
+    cov_matrix = LedoitWolf().fit(retornos).covariance_ * 252  # Estimativa de covariância
+    
     return retorno_medio_anual, cov_matrix
 
-# Funções de otimização
-def port_return(weights, mean_returns):
-    return np.dot(weights, mean_returns)
+# Função para otimizar a carteira usando a Teoria de Markowitz
+def otimizar_carteira(retorno_medio, cov_matrix, n_portfolios=10000):
+    resultados = np.zeros((3, n_portfolios))  # Armazenar resultados: [retorno, risco, Sharpe]
+    for i in range(n_portfolios):
+        pesos = np.random.random(len(retorno_medio))
+        pesos /= np.sum(pesos)  # Normalizar os pesos
+        
+        retorno_portfolio = np.sum(pesos * retorno_medio)  # Retorno esperado
+        risco_portfolio = np.sqrt(np.dot(pesos.T, np.dot(cov_matrix, pesos)))  # Risco (volatilidade)
+        sharpe_ratio = retorno_portfolio / risco_portfolio  # Índice de Sharpe
 
-def port_volatility(weights, cov_matrix):
-    return np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+        resultados[0, i] = retorno_portfolio
+        resultados[1, i] = risco_portfolio
+        resultados[2, i] = sharpe_ratio
 
-def neg_sharpe_ratio(weights, mean_returns, cov_matrix, risk_free_rate=0.0):
-    p_ret = port_return(weights, mean_returns)
-    p_vol = port_volatility(weights, cov_matrix)
-    return -(p_ret - risk_free_rate) / p_vol
+    return resultados
 
-def optimize_portfolio(mean_returns, cov_matrix, return_min=None):
-    num_assets = len(mean_returns)
-    args = (mean_returns, cov_matrix)
-    bounds = tuple((0, 1) for _ in range(num_assets))
-    constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - 1}]
-    if return_min is not None:
-        constraints.append({'type': 'ineq', 'fun': lambda x: port_return(x, mean_returns) - return_min})
+# Função para plotar os resultados
+def plotar_resultados(resultados, retorno_medio, cov_matrix):
+    plt.figure(figsize=(10, 6))
 
-    result_sharpe = minimize(neg_sharpe_ratio, num_assets * [1. / num_assets],
-                              args=args, method='SLSQP', bounds=bounds, constraints=constraints)
+    # Plotando a Fronteira Eficiente
+    plt.scatter(resultados[1, :], resultados[0, :], c=resultados[2, :], cmap='YlGnBu', marker='o')
+    plt.title('Fronteira Eficiente (Teoria de Markowitz)')
+    plt.xlabel('Risco (Volatilidade)')
+    plt.ylabel('Retorno Esperado')
+    plt.colorbar(label='Índice de Sharpe')
+
+    # Melhor carteira (maior Sharpe)
+    melhor_sharpe_idx = np.argmax(resultados[2])
+    melhor_retorno = resultados[0, melhor_sharpe_idx]
+    melhor_risco = resultados[1, melhor_sharpe_idx]
+    plt.scatter(melhor_risco, melhor_retorno, color='red', marker='*', s=200, label="Melhor Sharpe")
+
+    plt.legend(loc='upper left')
+    plt.show()
+
+# Função para exibir a carteira de maior retorno
+def carteira_maior_retorno(retorno_medio, cov_matrix):
+    resultados = otimizar_carteira(retorno_medio, cov_matrix)
     
-    result_retmax = minimize(lambda x: -port_return(x, mean_returns),
-                             num_assets * [1. / num_assets], method='SLSQP',
-                             bounds=bounds, constraints=constraints)
-
-    return result_sharpe.x, result_retmax.x
-
-# Fronteira eficiente
-def simular_portfolios(mean_returns, cov_matrix, n_sim=5000):
-    num_assets = len(mean_returns)
-    results = np.zeros((3, n_sim))
-    weights_list = []
+    # Encontrando a carteira com maior retorno esperado
+    maior_retorno_idx = np.argmax(resultados[0, :])
+    maior_retorno = resultados[0, maior_retorno_idx]
+    maior_risco = resultados[1, maior_retorno_idx]
     
-    for i in range(n_sim):
-        weights = np.random.dirichlet(np.ones(num_assets), size=1)[0]
-        ret = port_return(weights, mean_returns)
-        vol = port_volatility(weights, cov_matrix)
-        sharpe = (ret - 0) / vol
-        results[0,i] = vol
-        results[1,i] = ret
-        results[2,i] = sharpe
-        weights_list.append(weights)
+    print(f"Carteira de maior retorno esperado: \nRetorno: {maior_retorno:.4f}, Risco: {maior_risco:.4f}")
     
-    return results, weights_list
+    return maior_retorno, maior_risco
 
-# Execução principal
-dados = carregar_dados(tickers)
-mean_returns, cov_matrix = calcular_retorno_cov(dados)
+# Função para exibir a carteira informada
+def carteira_informada(pesos_informados, retorno_medio, cov_matrix):
+    retorno_informado = np.sum(pesos_informados * retorno_medio)
+    risco_informado = np.sqrt(np.dot(pesos_informados.T, np.dot(cov_matrix, pesos_informados)))
+    
+    print(f"Carteira Informada: \nRetorno: {retorno_informado:.4f}, Risco: {risco_informado:.4f}")
+    
+    return retorno_informado, risco_informado
 
-# Retorno mínimo desejado (ex: IPCA + prêmio = 6% a.a.)
-retorno_minimo = 0.06
+# Função para rodar a análise
+def rodar_analise(tickers, start_date, end_date, pesos_informados=None):
+    dados = carregar_dados(tickers, start_date, end_date)
+    if dados is None:
+        return
+    
+    retorno_medio, cov_matrix = calcular_retorno_cov(dados)
+    
+    # Otimizar a carteira com a Teoria de Markowitz
+    resultados = otimizar_carteira(retorno_medio, cov_matrix)
 
-# Otimizações
-w_sharpe, w_retmax = optimize_portfolio(mean_returns, cov_matrix, return_min=retorno_minimo)
+    # Plotar a Fronteira Eficiente
+    plotar_resultados(resultados, retorno_medio, cov_matrix)
+    
+    # Exibir a carteira com maior retorno esperado
+    carteira_maior_retorno(retorno_medio, cov_matrix)
+    
+    # Exibir a carteira informada (se fornecida)
+    if pesos_informados is not None:
+        carteira_informada(pesos_informados, retorno_medio, cov_matrix)
 
-# Simulações
-results, weights_simulados = simular_portfolios(mean_returns, cov_matrix)
+# Exemplo de uso
+tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'FB']  # Exemplos de tickers
+start_date = '2015-01-01'
+end_date = '2023-01-01'
 
-# Carteira informada
-ret_inf = port_return(pesos_informados, mean_returns)
-vol_inf = port_volatility(pesos_informados, cov_matrix)
-sharpe_inf = (ret_inf - 0) / vol_inf
+# Peso da carteira informada (opcional)
+pesos_informados = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
 
-# Carteira de Sharpe
-ret_sharpe = port_return(w_sharpe, mean_returns)
-vol_sharpe = port_volatility(w_sharpe, cov_matrix)
-sharpe_sharpe = (ret_sharpe - 0) / vol_sharpe
-
-# Carteira de retorno máximo
-ret_max = port_return(w_retmax, mean_returns)
-vol_max = port_volatility(w_retmax, cov_matrix)
-sharpe_max = (ret_max - 0) / vol_max
-
-# Visualização
-plt.figure(figsize=(10, 6))
-plt.scatter(results[0,:], results[1,:], c=results[2,:], cmap='viridis', marker='o', alpha=0.3)
-plt.colorbar(label='Sharpe Ratio')
-plt.scatter(vol_inf, ret_inf, color='red', marker='X', s=100, label='Carteira Informada')
-plt.scatter(vol_sharpe, ret_sharpe, color='blue', marker='X', s=100, label='Maior Sharpe')
-plt.scatter(vol_max, ret_max, color='green', marker='X', s=100, label='Maior Retorno')
-plt.xlabel('Volatilidade')
-plt.ylabel('Retorno Esperado')
-plt.title('Fronteira Eficiente - Carteiras')
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.show()
+rodar_analise(tickers, start_date, end_date, pesos_informados)
