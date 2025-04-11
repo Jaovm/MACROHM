@@ -2,8 +2,5 @@ streamlit
 pandas
 numpy
 yfinance
-pypfopt
-matplotlib
-seaborn
+git+https://github.com/robertmartin8/PyPortfolioOpt.git
 scikit-learn
-requests
