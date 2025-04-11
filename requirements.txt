@@ -1,8 +1,6 @@
-streamlit
-pandas
+yfinance
 numpy
+pandas
 matplotlib
 seaborn
-yfinance
 scikit-learn
-scipy
