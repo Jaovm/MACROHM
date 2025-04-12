@@ -6,7 +6,9 @@ import seaborn as sns
 from sklearn.covariance import LedoitWolf
 from scipy.optimize import minimize
 
-# Lista de tickers e pesos informados
+plt.style.use('seaborn-v0_8-darkgrid')
+
+# Carteira com tickers e pesos baseados na análise fundamentalista
 tickers = {
     'AGRO3.SA': 0.10, 'BBAS3.SA': 0.012, 'BBSE3.SA': 0.065, 'BPAC11.SA': 0.106,
     'EGIE3.SA': 0.05, 'ITUB3.SA': 0.005, 'PRIO3.SA': 0.15, 'PSSA3.SA': 0.15,
@@ -14,67 +16,103 @@ tickers = {
     'TOTS3.SA': 0.01, 'B3SA3.SA': 0.001, 'TAEE3.SA': 0.03
 }
 
-start_date = '2017-01-01'
-end_date = '2024-12-31'
+start_date = "2018-01-01"
+end_date = "2025-01-01"
 
-# Função para baixar os dados
 def baixar_dados(tickers, start, end):
-    df = yf.download(list(tickers.keys()), start=start, end=end)['Adj Close']
-    df = df.dropna(axis=1, how='all')
-    return df
+    try:
+        df = yf.download(list(tickers.keys()), start=start, end=end, group_by='ticker', auto_adjust=True, progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df = pd.concat({tic: df[tic]['Close'] for tic in tickers}, axis=1)
+        elif 'Adj Close' in df.columns:
+            df = df['Adj Close']
+        elif 'Close' in df.columns:
+            df = df['Close']
+        else:
+            raise ValueError("Coluna 'Adj Close' ou 'Close' não encontrada.")
+        df.dropna(axis=1, how='any', inplace=True)
+        return df
+    except Exception as e:
+        raise RuntimeError(f"Erro ao carregar dados: {e}")
 
-# Função para calcular retorno e covariância
-def calcular_retorno_cov(df):
-    retornos = df.pct_change().dropna()
+def calcular_retorno_cov(dados):
+    retornos = np.log(dados / dados.shift(1)).dropna()
     retornos = retornos.replace([np.inf, -np.inf], np.nan).dropna()
-    mean_returns = retornos.mean() * 252
+    media_retorno = retornos.mean() * 252
     cov_matrix = LedoitWolf().fit(retornos).covariance_ * 252
-    return mean_returns, cov_matrix
+    return media_retorno, cov_matrix
 
-# Função para calcular métricas da carteira
-def calcular_metricas(pesos, mean_returns, cov_matrix):
-    retorno = np.dot(pesos, mean_returns)
-    risco = np.sqrt(np.dot(pesos.T, np.dot(cov_matrix, pesos)))
-    sharpe = retorno / risco
-    return retorno, risco, sharpe
+def simular_portfolios(n_simulacoes, retorno_medio, cov_matrix, retorno_min=None):
+    n_ativos = len(retorno_medio)
+    resultados = []
+    pesos_lista = []
 
-# Restrição: soma dos pesos = 1
-def constraint_soma_pesos(pesos):
-    return np.sum(pesos) - 1
+    for _ in range(n_simulacoes):
+        pesos = np.random.dirichlet(np.ones(n_ativos), size=1).flatten()
+        retorno = np.dot(pesos, retorno_medio)
+        risco = np.sqrt(np.dot(pesos.T, np.dot(cov_matrix, pesos)))
+        sharpe = retorno / risco if risco > 0 else 0
+        if retorno_min is None or retorno >= retorno_min:
+            resultados.append([retorno, risco, sharpe])
+            pesos_lista.append(pesos)
+    return np.array(resultados), pesos_lista
 
-# Otimização da carteira
-def otimizar_carteira(mean_returns, cov_matrix):
-    num_assets = len(mean_returns)
-    args = (mean_returns, cov_matrix)
-    constraints = ({'type': 'eq', 'fun': constraint_soma_pesos})
-    bounds = tuple((0, 1) for _ in range(num_assets))
+def otimizar_portfolio(retorno_medio, cov_matrix, objetivo='sharpe', retorno_alvo=None):
+    n = len(retorno_medio)
+    def risco(pesos): return np.sqrt(np.dot(pesos.T, np.dot(cov_matrix, pesos)))
+    def sharpe(pesos): return -np.dot(pesos, retorno_medio) / risco(pesos)
 
-    # Máximo Sharpe
-    resultado = minimize(lambda x: -calcular_metricas(x, *args)[2],
-                         num_assets*[1./num_assets], args=args,
-                         method='SLSQP', bounds=bounds, constraints=constraints)
-    # Máximo Retorno
-    resultado_retorno = minimize(lambda x: -calcular_metricas(x, *args)[0],
-                                 num_assets*[1./num_assets], args=args,
-                                 method='SLSQP', bounds=bounds, constraints=constraints)
+    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    bounds = tuple((0, 1) for _ in range(n))
+    init = np.ones(n) / n
 
-    return resultado.x, resultado_retorno.x
+    if objetivo == 'sharpe':
+        result = minimize(sharpe, init, method='SLSQP', bounds=bounds, constraints=constraints)
+    elif objetivo == 'retorno':
+        constraints = (
+            constraints,
+            {'type': 'ineq', 'fun': lambda x: np.dot(x, retorno_medio) - retorno_alvo}
+        )
+        result = minimize(risco, init, method='SLSQP', bounds=bounds, constraints=constraints)
 
-# Rodar análise
+    return result.x if result.success else init
+
+def exibir_resultados(dados, pesos_informados):
+    retorno_medio, cov_matrix = calcular_retorno_cov(dados)
+
+    resultados, pesos_lista = simular_portfolios(10000, retorno_medio, cov_matrix)
+    retornos, riscos, sharpes = resultados[:, 0], resultados[:, 1], resultados[:, 2]
+
+    idx_max_sharpe = np.argmax(sharpes)
+    idx_max_retorno = np.argmax(retornos)
+
+    pesos_sharpe = pesos_lista[idx_max_sharpe]
+    pesos_max_retorno = pesos_lista[idx_max_retorno]
+
+    pesos_informados_arr = np.array(list(pesos_informados.values()))
+    ret_informado = np.dot(pesos_informados_arr, retorno_medio)
+    risco_informado = np.sqrt(np.dot(pesos_informados_arr.T, np.dot(cov_matrix, pesos_informados_arr)))
+    sharpe_informado = ret_informado / risco_informado
+
+    print("Carteira Informada:", dict(zip(pesos_informados.keys(), np.round(pesos_informados_arr, 3))))
+    print("Carteira Sharpe Máximo:", dict(zip(pesos_informados.keys(), np.round(pesos_sharpe, 3))))
+    print("Carteira Maior Retorno Esperado:", dict(zip(pesos_informados.keys(), np.round(pesos_max_retorno, 3))))
+
+    plt.figure(figsize=(12, 8))
+    plt.scatter(riscos, retornos, c=sharpes, cmap='viridis', alpha=0.5)
+    plt.colorbar(label='Sharpe Ratio')
+    plt.scatter(risco_informado, ret_informado, c='red', marker='*', s=200, label='Carteira Informada')
+    plt.scatter(resultados[idx_max_sharpe, 1], resultados[idx_max_sharpe, 0], c='gold', marker='*', s=200, label='Máx Sharpe')
+    plt.scatter(resultados[idx_max_retorno, 1], resultados[idx_max_retorno, 0], c='blue', marker='*', s=200, label='Maior Retorno')
+    plt.xlabel('Risco (Volatilidade)')
+    plt.ylabel('Retorno Esperado')
+    plt.legend()
+    plt.title('Fronteira Eficiente com Carteiras')
+    plt.show()
+
 def rodar_analise(tickers, start, end, pesos_informados):
     dados = baixar_dados(tickers, start, end)
-    mean_returns, cov_matrix = calcular_retorno_cov(dados)
-
-    pesos_sharpe, pesos_retorno = otimizar_carteira(mean_returns, cov_matrix)
-
-    ret_info = {
-        'Carteira Informada': calcular_metricas(np.array(list(pesos_informados.values())), mean_returns, cov_matrix),
-        'Máximo Sharpe': calcular_metricas(pesos_sharpe, mean_returns, cov_matrix),
-        'Máximo Retorno': calcular_metricas(pesos_retorno, mean_returns, cov_matrix)
-    }
-
-    for nome, (ret, risco, sharpe) in ret_info.items():
-        print(f"{nome}: Retorno esperado: {ret:.2%}, Risco: {risco:.2%}, Sharpe: {sharpe:.2f}")
+    exibir_resultados(dados, pesos_informados)
 
 # Executar
 rodar_analise(tickers, start_date, end_date, tickers)
