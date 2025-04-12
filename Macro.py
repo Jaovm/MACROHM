@@ -49,8 +49,8 @@ remover_ticker = st.sidebar.selectbox("Remover ticker", [""] + list(st.session_s
 if st.sidebar.button("Remover") and remover_ticker:
     st.session_state.tickers_dict.pop(remover_ticker, None)
 
-min_aloc = st.sidebar.slider("Alocação mínima por ativo (%)", 0.0, 0.1, 0.0, 0.01)
-max_aloc = st.sidebar.slider("Alocação máxima por ativo (%)", 0.1, 1.0, 0.3, 0.01)
+min_aloc = st.sidebar.slider("Alocação mínima por ativo (%)", 0.0, 0.1, 0.01, 0.01)
+max_aloc = st.sidebar.slider("Alocação máxima por ativo (%)", 0.1, 1.0, 0.18, 0.01)
 
 @st.cache_data(show_spinner=False)
 def baixar_dados(tickers, start, end):
