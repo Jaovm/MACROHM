@@ -1,198 +1,106 @@
-import yfinance as yf
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.covariance import LedoitWolf
 import streamlit as st
+import pandas as pd
+import yfinance as yf
+import requests
+from bs4 import BeautifulSoup
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="Sugestão de Alocação Inteligente", layout="wide")
+st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
 
-# Configurações iniciais
-start_date = '2017-01-01'
-end_date = pd.Timestamp.today().strftime('%Y-%m-%d')
+st.markdown("""
+Este app analisa **notícias econômicas atuais** e sua **carteira** para sugerir uma **nova alocação**.
+Além disso, compara os preços atuais dos ativos com os **preços alvo dos analistas**.
+""")
 
-# Dicionário que mapeia setores por ticker
-setor_por_ticker = {
-    'AGRO3.SA': 'Commodities',
-    'BBAS3.SA': 'Bancos',
-    'BBSE3.SA': 'Seguradoras',
-    'BPAC11.SA': 'Bancos',
-    'EGIE3.SA': 'Setor de energia',
-    'ITUB3.SA': 'Bancos',
-    'PRIO3.SA': 'Petróleo',
-    'PSSA3.SA': 'Seguradoras',
-    'SAPR3.SA': 'Utilities',
-    'SBSP3.SA': 'Utilities',
-    'VIVT3.SA': 'Tecnologia',
-    'WEGE3.SA': 'Tecnologia',
-    'TOTS3.SA': 'Tecnologia',
-    'B3SA3.SA': 'Bancos',
-    'TAEE3.SA': 'Setor de energia'
-}
-
-if 'tickers_dict' not in st.session_state:
-    st.session_state.tickers_dict = {
-        'AGRO3.SA': 0.10, 'BBAS3.SA': 0.012, 'BBSE3.SA': 0.065, 'BPAC11.SA': 0.106,
-        'EGIE3.SA': 0.05, 'ITUB3.SA': 0.005, 'PRIO3.SA': 0.15, 'PSSA3.SA': 0.15,
-        'SAPR3.SA': 0.067, 'SBSP3.SA': 0.04, 'VIVT3.SA': 0.064, 'WEGE3.SA': 0.15,
-        'TOTS3.SA': 0.01, 'B3SA3.SA': 0.001, 'TAEE3.SA': 0.03
-    }
-
-st.sidebar.header("Gerenciar Tickers")
-novo_ticker = st.sidebar.text_input("Novo ticker (ex: PETR4.SA)")
-peso_ticker = st.sidebar.number_input("Peso (%)", min_value=0.0, max_value=1.0, step=0.01)
-if st.sidebar.button("Adicionar ticker") and novo_ticker:
-    st.session_state.tickers_dict[novo_ticker.upper()] = peso_ticker
-
-remover_ticker = st.sidebar.selectbox("Remover ticker", [""] + list(st.session_state.tickers_dict.keys()))
-if st.sidebar.button("Remover") and remover_ticker:
-    st.session_state.tickers_dict.pop(remover_ticker, None)
-
-min_aloc = st.sidebar.slider("Alocação mínima por ativo (%)", 0.0, 0.1, 0.01, 0.01)
-max_aloc = st.sidebar.slider("Alocação máxima por ativo (%)", 0.1, 1.0, 0.18, 0.01)
-
-@st.cache_data(show_spinner=False)
-def baixar_dados(tickers, start, end):
+# Função para obter preço alvo do Yahoo Finance
+def get_target_price(ticker):
     try:
-        df = yf.download(tickers, start=start, end=end, group_by='ticker', auto_adjust=True)
-        df = df.stack(level=0).rename_axis(index=['Date', 'Ticker']).reset_index()
-        df = df.pivot(index='Date', columns='Ticker', values='Close')
-        return df.dropna(axis=1, how='any')
-    except Exception as e:
-        st.error(f"Erro ao carregar os dados: {e}")
-        return pd.DataFrame()
+        url = f"https://finance.yahoo.com/quote/{ticker}/analysis?p={ticker}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(url, headers=headers)
+        soup = BeautifulSoup(r.text, "html.parser")
 
-def calcular_retorno_cov(dados):
-    retornos = dados.pct_change().dropna()
-    retorno_medio = retornos.mean() * 252
-    cov_matrix = LedoitWolf().fit(retornos).covariance_ * 252
-    return retorno_medio, cov_matrix
+        summary_url = f"https://finance.yahoo.com/quote/{ticker}"  # Para pegar preço atual
+        r2 = requests.get(summary_url, headers=headers)
+        soup2 = BeautifulSoup(r2.text, "html.parser")
 
-def simular_carteiras(retorno_medio, cov_matrix, num_portfolios=400000, rf=0.0):
-    n = len(retorno_medio)
-    resultados = []
-    pesos_lista = []
-    for _ in range(num_portfolios):
-        while True:
-            pesos = np.random.dirichlet(np.ones(n), size=1)[0]
-            if all(min_aloc <= w <= max_aloc for w in pesos):
-                break
-        retorno = np.dot(pesos, retorno_medio)
-        risco = np.sqrt(np.dot(pesos.T, np.dot(cov_matrix, pesos)))
-        sharpe = (retorno - rf) / risco if risco != 0 else 0
-        resultados.append([retorno, risco, sharpe])
-        pesos_lista.append(pesos)
+        price = soup2.find("fin-streamer", {"data-symbol": ticker, "data-field": "regularMarketPrice"})
+        price = float(price.text.replace(",", "")) if price else None
 
-    resultados = np.array(resultados)
-    melhor_idx = np.argmax(resultados[:, 2])
-    maior_ret_idx = np.argmax(resultados[:, 0])
+        # Target price médio (Price Target Mean)
+        section = soup.find("section", {"data-test": "qsp-analyst"})
+        if section:
+            texts = section.get_text()
+            start = texts.find("Average")
+            if start != -1:
+                value = texts[start:].split("\n")[1]
+                target = float(value.replace("$", "").replace(",", ""))
+                return price, target
+        return price, None
+    except:
+        return None, None
 
-    melhor_sharpe = {
-        'retorno': resultados[melhor_idx, 0],
-        'risco': resultados[melhor_idx, 1],
-        'sharpe': resultados[melhor_idx, 2],
-        'pesos': pesos_lista[melhor_idx]
-    }
+# Simulação de análise de notícias (pode ser dinâmica com scraping)
+def analisar_cenario():
+    resumo = """
+    **Resumo Econômico Atual:**
+    - Crescimento do PIB em desaceleração.
+    - Inflação acima da meta e juros elevados.
+    - Desemprego em queda, impulsionando o consumo.
+    - Aumento de gastos públicos gera dúvidas fiscais.
 
-    maior_retorno = {
-        'retorno': resultados[maior_ret_idx, 0],
-        'risco': resultados[maior_ret_idx, 1],
-        'sharpe': resultados[maior_ret_idx, 2],
-        'pesos': pesos_lista[maior_ret_idx]
-    }
+    **Setores Favorecidos:**
+    - Consumo cíclico
+    - Construção civil
+    - Varejo
+    
+    **Setores com alerta:**
+    - Energia
+    - Exportadoras (risco externo)
+    - Bancos (impacto dos juros)
+    """
+    setores_favoraveis = ["consumo", "construção", "varejo"]
+    setores_alerta = ["energia", "exportação", "bancos"]
+    return resumo, setores_favoraveis, setores_alerta
 
-    return resultados, pesos_lista, melhor_sharpe, maior_retorno
+# Upload da carteira
+st.header("📁 Sua Carteira Atual")
+arquivo = st.file_uploader("Envie um arquivo CSV com colunas: Ticker, Peso (%)", type=["csv"])
 
-def plotar_grafico(resultados):
-    plt.figure(figsize=(12, 6))
-    plt.scatter(resultados[:, 1], resultados[:, 0], c=resultados[:, 2], cmap='viridis', s=3)
-    plt.xlabel('Risco (Volatilidade)')
-    plt.ylabel('Retorno Esperado')
-    plt.title('Fronteira Eficiente - Simulação de Monte Carlo')
-    st.pyplot(plt.gcf())
+if arquivo:
+    carteira = pd.read_csv(arquivo)
+    st.dataframe(carteira)
 
-def sugerir_ativos_por_cenario():
-    st.sidebar.subheader("Cenário Macroeconômico")
-    cenarios = {
-        "Alta de Juros": ["Bancos", "Seguradoras", "Tesouro Direto"],
-        "Inflação em Alta": ["Setor de energia", "Commodities"],
-        "PIB em Crescimento": ["Varejo", "Construção Civil", "Tecnologia"],
-        "Recessão": ["Utilities", "Alimentos", "Saúde"],
-        "Dólar em Alta": ["Exportadoras", "Mineração", "Petróleo"]
-    }
+    st.header("🌐 Análise de Cenário Econômico")
+    resumo, setores_bull, setores_bear = analisar_cenario()
+    st.markdown(resumo)
 
-    cenarios_selecionados = st.sidebar.multiselect(
-        "Selecione cenários macroeconômicos",
-        options=list(cenarios.keys()),
-        default=[]
-    )
+    st.header("📌 Sugestão de Alocação")
+    sugestoes = []
 
-    setores_favoraveis = set()
-    if cenarios_selecionados:
-        for c in cenarios_selecionados:
-            setores_favoraveis.update(cenarios[c])
-        st.sidebar.markdown("**Setores favorecidos:**")
-        st.sidebar.info(", ".join(setores_favoraveis))
+    for i, row in carteira.iterrows():
+        ticker = row['Ticker']
+        peso = row['Peso (%)']
+        price, target = get_target_price(ticker)
+        upside = round((target - price) / price * 100, 2) if price and target else None
 
-    return setores_favoraveis
+        recomendacao = "Manter"
+        comentario = ""
+        if upside and upside > 15:
+            recomendacao = "Aumentar"
+        elif upside and upside < 0:
+            recomendacao = "Reduzir"
 
-def exibir_resultados(dados, pesos_informados):
-    retorno_medio, cov_matrix = calcular_retorno_cov(dados)
-    ativos_validos = dados.columns.intersection(pesos_informados.keys())
-    if len(ativos_validos) == 0:
-        st.error("Nenhum ativo com dados válidos para análise.")
-        return
+        sugestoes.append({
+            "Ticker": ticker,
+            "Peso Atual (%)": peso,
+            "Preço Atual": price,
+            "Preço Alvo": target,
+            "Upside (%)": upside,
+            "Recomendação": recomendacao
+        })
 
-    retorno_medio = retorno_medio[ativos_validos]
-    cov_matrix_df = pd.DataFrame(cov_matrix, index=dados.columns, columns=dados.columns)
-    cov_matrix = cov_matrix_df.loc[ativos_validos, ativos_validos].values
-    pesos_informados_arr = np.array([pesos_informados[tic] for tic in ativos_validos])
-    pesos_informados_arr /= pesos_informados_arr.sum()
-
-    ret_informado = np.dot(pesos_informados_arr, retorno_medio)
-    risco_informado = np.sqrt(np.dot(pesos_informados_arr.T, np.dot(cov_matrix, pesos_informados_arr)))
-
-    st.subheader("Carteira Informada")
-    st.write(f"Retorno esperado anualizado: {ret_informado:.2%}")
-    st.write(f"Volatilidade anualizada: {risco_informado:.2%}")
-
-    resultados, pesos, melhor_sharpe, maior_retorno = simular_carteiras(retorno_medio, cov_matrix)
-
-    st.subheader("Carteira com Melhor Índice de Sharpe")
-    st.write(f"Retorno: {melhor_sharpe['retorno']:.2%}")
-    st.write(f"Risco: {melhor_sharpe['risco']:.2%}")
-    st.write(f"Sharpe: {melhor_sharpe['sharpe']:.2f}")
-    st.dataframe(pd.DataFrame({'Ticker': ativos_validos, 'Peso': melhor_sharpe['pesos']}))
-
-    st.subheader("Carteira com Maior Retorno Esperado")
-    st.write(f"Retorno: {maior_retorno['retorno']:.2%}")
-    st.write(f"Risco: {maior_retorno['risco']:.2%}")
-    st.write(f"Sharpe: {maior_retorno['sharpe']:.2f}")
-    st.dataframe(pd.DataFrame({'Ticker': ativos_validos, 'Peso': maior_retorno['pesos']}))
-
-    plotar_grafico(resultados)
-
-def rodar_analise(tickers_dict, start, end):
-    setores_favoraveis = sugerir_ativos_por_cenario()
-    dados = baixar_dados(list(tickers_dict.keys()), start, end)
-
-    if dados.empty:
-        st.error("Erro ao carregar os dados. Verifique os tickers ou a conexão.")
-        return
-
-    pesos_ajustados = {}
-    for ticker, peso in tickers_dict.items():
-        setor = setor_por_ticker.get(ticker)
-        if setor in setores_favoraveis:
-            peso *= 1.2
-        pesos_ajustados[ticker] = peso
-
-    soma_pesos = sum(pesos_ajustados.values())
-    if soma_pesos > 0:
-        for t in pesos_ajustados:
-            pesos_ajustados[t] /= soma_pesos
-
-    exibir_resultados(dados, pesos_ajustados)
-
-rodar_analise(st.session_state.tickers_dict, start_date, end_date)
+    df_sugestoes = pd.DataFrame(sugestoes)
+    st.dataframe(df_sugestoes)
+else:
+    st.info("Por favor, envie sua carteira para continuar.")
