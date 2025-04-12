@@ -60,18 +60,35 @@ def analisar_cenario_com_noticias(noticias):
     setores_alerta = []
     resumo = ""
 
+    palavras_chave_favoraveis = {
+        "inflação": ["bancos", "imobiliário"],
+        "juros altos": ["bancos", "imobiliário"],
+        "desemprego em queda": ["consumo", "varejo", "automotivo"],
+        "crescimento do consumo": ["varejo", "automotivo"],
+        "gastos públicos": ["construção", "infraestrutura"],
+        "setor exportação": ["agro", "mineração", "energia"]
+    }
+    
+    palavras_chave_alerta = {
+        "crise política": ["bancos", "imobiliário"],
+        "recessão": ["consumo", "varejo", "automotivo"],
+        "aumento de impostos": ["consumo", "varejo"]
+    }
+
     for noticia in noticias:
         lower = noticia.lower()
-        if "inflação" in lower or "juros altos" in lower:
-            setores_alerta.extend(["bancos", "imobiliário"])
-        if "desemprego em queda" in lower or "consumo" in lower:
-            setores_favoraveis.append("consumo")
-        if "gastos públicos" in lower or "governo" in lower:
-            setores_favoraveis.append("construção")
-        if "importação" in lower or "tarifa" in lower:
-            setores_alerta.append("exportação")
+        resumo += f"\n- {noticia}"
+        
+        # Verificando palavras-chave favoráveis
+        for palavra, setores in palavras_chave_favoraveis.items():
+            if palavra in lower:
+                setores_favoraveis.extend(setores)
 
-    resumo += "\n".join([f"- {n}" for n in noticias])
+        # Verificando palavras-chave de alerta
+        for palavra, setores in palavras_chave_alerta.items():
+            if palavra in lower:
+                setores_alerta.extend(setores)
+
     setores_favoraveis = list(set(setores_favoraveis))
     setores_alerta = list(set(setores_alerta))
 
@@ -214,7 +231,7 @@ if not carteira.empty:
             "Peso Sugerido (%)": round(peso_sugerido, 2)
         })
 
-    # Normalizar os pesos sugeridos para que o total seja 
+    # Normalizar os pesos sugeridos para que o total seja 100%
     if peso_total > 0:
         fator_normalizacao = 100 / peso_total
         for sugestao in sugestoes:
