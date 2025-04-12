@@ -165,10 +165,15 @@ if not carteira.empty:
         ticker = row['Ticker']
         peso = row['Peso (%)']
         price, target = get_target_price(ticker)
-        upside = round((target - price) / price * 100, 2) if price and target else None
+        
+        if price and target:
+            upside = round((target - price) / price * 100, 2)
+        else:
+            upside = None
 
         recomendacao = "Manter"
         peso_sugerido = peso
+        
         if upside is not None:
             if upside > 15:
                 recomendacao = "Aumentar"
