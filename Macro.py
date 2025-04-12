@@ -77,8 +77,8 @@ def analisar_cenario_com_noticias(noticias):
 
     return resumo, setores_favoraveis, setores_alerta
 
-# Função para gerar o resumo das empresas que se destacam com base no cenário macroeconômico
-def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear):
+# Função para gerar o resumo das empresas que se destacam com base nas notícias econômicas
+def gerar_resumo_empresas_destaque(carteira, setores_bull, setores_bear):
     empresas_destaque = []
 
     for i, row in carteira.iterrows():
@@ -86,24 +86,24 @@ def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull,
         price, target = get_target_price_yfinance(ticker)
         retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
 
-        # Verificar em qual setor a empresa se encaixa e gerar o resumo baseado nas notícias
+        motivo = ""
+
+        # Verificar se a empresa está em um setor favorável
         if any(setor in ticker.lower() for setor in setores_bull):
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Motivo": f"Setor favorecido pelas notícias econômicas atuais: {', '.join(setores_bull)}."
-            })
-        
-        elif any(setor in ticker.lower() for setor in setores_bear):
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Motivo": f"Setor em alerta devido a notícias econômicas atuais: {', '.join(setores_bear)}."
-            })
+            motivo += f"Setor favorável devido às notícias econômicas atuais (ex.: {', '.join(setores_bull)}). "
+
+        # Verificar se a empresa está em um setor com alerta
+        if any(setor in ticker.lower() for setor in setores_bear):
+            motivo += f"Setor em alerta devido às notícias econômicas atuais (ex.: {', '.join(setores_bear)}). "
 
         # Se a empresa tem um desempenho histórico relevante
         if retorno_medio is not None and retorno_medio > 15:
+            motivo += f"Desempenho superior ao médio histórico nos anos {', '.join(map(str, anos_similares))}."
+
+        if motivo:
             empresas_destaque.append({
                 "Ticker": ticker,
-                "Motivo": f"Desempenho superior ao médio histórico nos anos {', '.join(map(str, anos_similares))}."
+                "Motivo": motivo
             })
 
     return empresas_destaque
@@ -165,7 +165,7 @@ if not carteira.empty:
     st.header("📌 Empresas que se Destacam no Cenário Atual com Base nas Notícias Econômicas")
     
     # Gerar o resumo das empresas que se destacam com base no cenário macroeconômico
-    empresas_destaque = gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear)
+    empresas_destaque = gerar_resumo_empresas_destaque(carteira, setores_bull, setores_bear)
     
     for empresa in empresas_destaque:
         st.markdown(f"- **{empresa['Ticker']}**: {empresa['Motivo']}")
