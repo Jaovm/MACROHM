@@ -1,10 +1,11 @@
+# coding: utf-8
 import streamlit as st
 import pandas as pd
 import yfinance as yf
 import numpy as np
 
 st.set_page_config(page_title="Sugestão de Alocação Inteligente", layout="wide")
-st.title("\ud83d\udcca Sugestão de Alocação Baseada em Notícias e Carteira Atual")
+st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
 
 st.markdown("""
 Este app analisa **notícias econômicas atuais** e sua **carteira** para sugerir uma **nova alocação**.
@@ -72,7 +73,7 @@ def analisar_cenario():
     return resumo, setores_favoraveis, setores_alerta
 
 # Upload da carteira
-st.header("\ud83d\udcc1 Sua Carteira Atual")
+st.header("📁 Sua Carteira Atual")
 arquivo = st.file_uploader("Envie um arquivo CSV com colunas: Ticker, Peso (%)", type=["csv"])
 
 carteira_manual = [
@@ -109,14 +110,14 @@ carteira = pd.concat([carteira_csv, carteira_manual_df], ignore_index=True)
 if not carteira.empty:
     st.dataframe(carteira)
 
-    st.header("\ud83c\udf10 Análise de Cenário Econômico")
+    st.header("🌐 Análise de Cenário Econômico")
     for n in noticias_relevantes():
         st.markdown(f"- {n}")
 
     resumo, setores_bull, setores_bear = analisar_cenario()
     st.markdown(resumo)
 
-    st.header("\ud83d\udccc Sugestão de Alocação")
+    st.header("📌 Sugestão de Alocação")
     sugestoes = []
     empresas_destaque_historico = []
     anos_similares = [2019, 2022]
@@ -158,7 +159,7 @@ if not carteira.empty:
 
     st.dataframe(df_sugestoes)
 
-    st.header("\ud83d\udcc8 Empresas com Desempenho Histórico Destacado")
+    st.header("📈 Empresas com Desempenho Histórico Destacado")
     if empresas_destaque_historico:
         destaque_df = pd.DataFrame(empresas_destaque_historico, columns=["Ticker", "Retorno Médio em Anos Similares (%)"])
         st.dataframe(destaque_df.sort_values(by="Retorno Médio em Anos Similares (%)", ascending=False))
