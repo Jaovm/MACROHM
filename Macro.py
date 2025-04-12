@@ -50,164 +50,44 @@ indicadores = {
     "PIB (variação % a.a.)": 7326
 }
 
+# Dados adicionais (exemplo: buscar informações do Yahoo Finance para algumas variáveis)
+def get_yahoo_finance_data(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        return info
+    except Exception as e:
+        print(f"Erro ao buscar dados do Yahoo Finance para {ticker}: {e}")
+        return None
+
+# Exibindo os dados do Bacen primeiro
 for nome, codigo in indicadores.items():
     df_macro = get_macro_data_sgs(codigo, data_inicio_macro)
     if not df_macro.empty:
         ultimo_valor = df_macro.iloc[-1]['valor']
         data_valor = df_macro.index[-1].strftime("%b/%Y")
+        
+        # Verifica se o último valor está correto (evita valores futuros ou com erro)
+        if data_valor > hoje.strftime("%b/%Y"):
+            data_valor = df_macro.index[-2].strftime("%b/%Y")  # Pega o valor anterior caso o atual seja inválido
+            ultimo_valor = df_macro.iloc[-2]['valor']
+        
         st.metric(label=nome + f" (último dado: {data_valor})", value=f"{ultimo_valor:.2f}")
+    else:
+        st.warning(f"Não foi possível obter dados para {nome}")
 
-# Análise de desempenho histórico durante anos semelhantes ao cenário atual
-def analise_historica_anos_similares(ticker, anos_semelhantes):
-    try:
-        stock = yf.Ticker(ticker)
-        hoje = datetime.datetime.today().strftime('%Y-%m-%d')
-        hist = stock.history(start="2017-01-01", end=hoje)["Close"]
-        retornos = {}
-        for ano in anos_semelhantes:
-            dados_ano = hist[hist.index.year == ano]
-            if not dados_ano.empty:
-                retorno = dados_ano.pct_change().sum() * 100
-                retornos[ano] = retorno
-        media = np.mean(list(retornos.values())) if retornos else None
-        return media
-    except Exception as e:
-        print(f"Erro ao calcular retorno histórico para {ticker}: {e}")
-        return None
+# Exemplo de adicionar um indicador do Yahoo Finance
+ticker_cambio = 'BRL=X'  # Código do câmbio R$/US$
+cambio_data = get_yahoo_finance_data(ticker_cambio)
 
-# Busca notícias reais usando GNews API
-def noticias_reais(api_key):
-    url = f"https://gnews.io/api/v4/search?q=economia+brasil&lang=pt&country=br&max=5&token={api_key}"
-    try:
-        response = requests.get(url)
-        data = response.json()
-        noticias = [article["title"] for article in data.get("articles", [])]
-        return noticias
-    except Exception as e:
-        print(f"Erro ao buscar notícias: {e}")
-        return []
+if cambio_data:
+    cambio_valor = cambio_data.get('regularMarketPrice', 'N/A')
+    st.metric(label="Câmbio (R$/US$)", value=f"{cambio_valor}")
 
-# Simulação de análise de cenário com base em notícias reais
-def analisar_cenario_com_noticias(noticias):
-    setores_favoraveis = []
-    setores_alerta = []
-    resumo = ""
+# Exemplo de adicionar outro indicador de ações
+ticker_acao = 'PETR4.SA'  # Ticker da PETROBRAS
+acao_data = get_yahoo_finance_data(ticker_acao)
 
-    for noticia in noticias:
-        lower = noticia.lower()
-        if "inflação" in lower or "juros altos" in lower:
-            setores_alerta.extend(["bancos", "imobiliário"])
-        if "desemprego em queda" in lower or "consumo" in lower:
-            setores_favoraveis.append("consumo")
-        if "gastos públicos" in lower or "governo" in lower:
-            setores_favoraveis.append("construção")
-        if "importação" in lower or "tarifa" in lower:
-            setores_alerta.append("exportação")
-
-    resumo += "\n".join([f"- {n}" for n in noticias])
-    setores_favoraveis = list(set(setores_favoraveis))
-    setores_alerta = list(set(setores_alerta))
-
-    return resumo, setores_favoraveis, setores_alerta
-
-# Função para gerar o resumo das empresas que se destacam com base no cenário macroeconômico
-def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear, anos_similares):
-    empresas_destaque = []
-    
-    for i, row in carteira.iterrows():
-        ticker = row['Ticker']
-        price, target = get_target_price_yfinance(ticker)
-        retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
-
-        if "consumo" in setores_bull and "consumo" in ticker.lower():
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Setor de consumo favorecido pelas notícias econômicas atuais. Desempenho histórico positivo."
-            })
-
-        elif "construção" in setores_bull and "construção" in ticker.lower():
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Setor de construção favorecido pelas notícias econômicas atuais. Desempenho histórico positivo."
-            })
-
-        if retorno_medio is not None and retorno_medio > 15:
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Desempenho superior ao médio histórico nos anos {', '.join(map(str, anos_similares))}."
-            })
-
-        if "exportação" in setores_bear and "exportação" in ticker.lower():
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Setor de exportação em alerta devido a notícias econômicas. Desempenho histórico fraco."
-            })
-
-        if price and target:
-            upside = round((target - price) / price * 100, 2)
-            if upside and upside > 15:
-                empresas_destaque.append({
-                    "Ticker": ticker,
-                    "Retorno Médio em Anos Similares (%)": retorno_medio if retorno_medio else "Não disponível",
-                    "Motivo": "Preço alvo sugere um alto potencial de valorização."
-                })
-
-    return empresas_destaque
-
-# Função para recomendar ativos da carteira com base no cenário
-def recomendar_ativos_carteira(carteira, setores_bull, anos_similares):
-    recomendacoes = []
-
-    for i, row in carteira.iterrows():
-        ticker = row['Ticker']
-        price, target = get_target_price_yfinance(ticker)
-        retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
-
-        if retorno_medio is not None and retorno_medio > 15:
-            recomendacoes.append({
-                "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Desempenho superior ao médio histórico nos anos {', '.join(map(str, anos_similares))}."
-            })
-
-        if price and target:
-            upside = round((target - price) / price * 100, 2)
-            if upside and upside > 10:
-                recomendacoes.append({
-                    "Ticker": ticker,
-                    "Retorno Médio em Anos Similares (%)": retorno_medio if retorno_medio else "Não disponível",
-                    "Motivo": f"Preço alvo sugere um alto potencial de valorização (upside de {upside}%)."
-                })
-
-    return recomendacoes
-
-# Função principal para o fluxo do app
-def main():
-    # Obter a chave da API para o GNews
-    api_key = st.text_input("Informe a chave da API do GNews", type="password")
-    
-    if api_key:
-        noticias = noticias_reais(api_key)
-
-        # Análise de notícias e setores
-        resumo, setores_favoraveis, setores_alerta = analisar_cenario_com_noticias(noticias)
-
-        # Exibir notícias e setores destacados
-        st.subheader("📰 Resumo das últimas notícias e setores favorecidos")
-        st.write(resumo)
-
-        st.subheader("🔍 Setores Favorecidos pelo Cenário Atual")
-        st.write(", ".join(setores_favoraveis))
-
-        # Recomendação de Ativos da Carteira
-        recomendacoes_carteira = recomendar_ativos_carteira(carteira, setores_favoraveis, anos_similares=[2019, 2023])
-
-        if recomendacoes_carteira:
-            st.subheader("💡 Ativos da sua Carteira com Potencial de Valorização")
-            st.dataframe(pd.DataFrame(recomendacoes_carteira))
-        else:
-            st.info("Nenhum ativo da sua carteira se destaca como recomendação forte no cenário atual.")
+if acao_data:
+    acao_valor = acao_data.get('regularMarketPrice', 'N/A')
+    st.metric(label="PETR4 (Preço Atual)", value=f"R${acao_valor}")
