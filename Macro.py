@@ -4,33 +4,39 @@ import yfinance as yf
 import numpy as np
 
 st.set_page_config(page_title="Sugestão de Alocação Inteligente", layout="wide")
-st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
+st.title("\ud83d\udcca Sugestão de Alocação Baseada em Notícias e Carteira Atual")
 
 st.markdown("""
 Este app analisa **notícias econômicas atuais** e sua **carteira** para sugerir uma **nova alocação**.
-Além disso, compara os preços atuais dos ativos com os **preços alvo dos analistas**.
+Além disso, compara os preços atuais dos ativos com os **preços alvo dos analistas** e destaca empresas que performaram bem em **cenários econômicos semelhantes no passado**.
 """)
 
 # Função para obter preço atual e preço alvo do Yahoo Finance
 def get_target_price_yfinance(ticker):
     try:
         stock = yf.Ticker(ticker)
-        price = stock.history(period="1d")['Close'][0]
-        target = stock.info['targetMeanPrice'] if 'targetMeanPrice' in stock.info else None
+        price = stock.history(period="1d")["Close"][0]
+        target = stock.info.get("targetMeanPrice", None)
         return price, target
     except Exception as e:
         print(f"Erro ao buscar dados de {ticker}: {e}")
         return None, None
 
-# Função para calcular o desempenho de empresas em cenários passados
-def analise_historica(ticker, periodo="1y"):
+# Análise de desempenho histórico durante anos semelhantes ao cenário atual
+def analise_historica_anos_similares(ticker, anos_semelhantes):
     try:
         stock = yf.Ticker(ticker)
-        hist = stock.history(period=periodo)['Close']
-        retorno = hist.pct_change().sum() * 100  # Calculando o retorno acumulado do período
-        return retorno
+        hist = stock.history(start="2017-01-01", end="2024-12-31")["Close"]
+        retornos = {}
+        for ano in anos_semelhantes:
+            dados_ano = hist[hist.index.year == ano]
+            if not dados_ano.empty:
+                retorno = dados_ano.pct_change().sum() * 100
+                retornos[ano] = retorno
+        media = np.mean(list(retornos.values())) if retornos else None
+        return media
     except Exception as e:
-        print(f"Erro ao calcular desempenho histórico de {ticker}: {e}")
+        print(f"Erro ao calcular retorno histórico para {ticker}: {e}")
         return None
 
 # Notícias mais relevantes (mock com destaque atual)
@@ -66,7 +72,7 @@ def analisar_cenario():
     return resumo, setores_favoraveis, setores_alerta
 
 # Upload da carteira
-st.header("📁 Sua Carteira Atual")
+st.header("\ud83d\udcc1 Sua Carteira Atual")
 arquivo = st.file_uploader("Envie um arquivo CSV com colunas: Ticker, Peso (%)", type=["csv"])
 
 carteira_manual = [
@@ -103,17 +109,17 @@ carteira = pd.concat([carteira_csv, carteira_manual_df], ignore_index=True)
 if not carteira.empty:
     st.dataframe(carteira)
 
-    st.header("🌐 Análise de Cenário Econômico")
-    noticias = noticias_relevantes()
-    for n in noticias:
+    st.header("\ud83c\udf10 Análise de Cenário Econômico")
+    for n in noticias_relevantes():
         st.markdown(f"- {n}")
 
     resumo, setores_bull, setores_bear = analisar_cenario()
     st.markdown(resumo)
 
-    st.header("📌 Sugestão de Alocação")
+    st.header("\ud83d\udccc Sugestão de Alocação")
     sugestoes = []
-    empresas_destacadas = []
+    empresas_destaque_historico = []
+    anos_similares = [2019, 2022]
 
     for i, row in carteira.iterrows():
         ticker = row['Ticker']
@@ -121,17 +127,16 @@ if not carteira.empty:
         price, target = get_target_price_yfinance(ticker)
         upside = round((target - price) / price * 100, 2) if price and target else None
 
-        # Análise histórica do desempenho
-        desempenho_historico = analise_historica(ticker, "1y")
-        if desempenho_historico is not None and desempenho_historico > 20:  # Exemplo de filtro
-            empresas_destacadas.append(ticker)
+        retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
+        if retorno_medio is not None and retorno_medio > 15:
+            empresas_destaque_historico.append((ticker, retorno_medio))
 
         recomendacao = "Manter"
         peso_sugerido = peso
         if upside is not None:
             if upside > 15:
                 recomendacao = "Aumentar"
-                peso_sugerido = min(peso * 1.2, 20)  # Limita a no máximo 20%
+                peso_sugerido = min(peso * 1.2, 20)
             elif upside < 0:
                 recomendacao = "Reduzir"
                 peso_sugerido = max(peso * 0.8, 0)
@@ -153,10 +158,11 @@ if not carteira.empty:
 
     st.dataframe(df_sugestoes)
 
-    st.header("🔍 Empresas com Desempenho Destacado")
-    if empresas_destacadas:
-        st.markdown(f"As seguintes empresas tiveram um desempenho destacado no último ano com mais de 20% de retorno acumulado: {', '.join(empresas_destacadas)}")
+    st.header("\ud83d\udcc8 Empresas com Desempenho Histórico Destacado")
+    if empresas_destaque_historico:
+        destaque_df = pd.DataFrame(empresas_destaque_historico, columns=["Ticker", "Retorno Médio em Anos Similares (%)"])
+        st.dataframe(destaque_df.sort_values(by="Retorno Médio em Anos Similares (%)", ascending=False))
     else:
-        st.markdown("Nenhuma empresa teve desempenho destacado com base no critério de 20% de retorno anual.")
+        st.markdown("Nenhuma empresa teve desempenho destacado em anos semelhantes ao atual.")
 else:
     st.info("Por favor, envie sua carteira ou insira ativos manualmente para continuar.")
