@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+import numpy as np
 
 st.set_page_config(page_title="Sugestão de Alocação Inteligente", layout="wide")
 st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
@@ -20,6 +21,17 @@ def get_target_price_yfinance(ticker):
     except Exception as e:
         print(f"Erro ao buscar dados de {ticker}: {e}")
         return None, None
+
+# Função para calcular o desempenho de empresas em cenários passados
+def analise_historica(ticker, periodo="1y"):
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period=periodo)['Close']
+        retorno = hist.pct_change().sum() * 100  # Calculando o retorno acumulado do período
+        return retorno
+    except Exception as e:
+        print(f"Erro ao calcular desempenho histórico de {ticker}: {e}")
+        return None
 
 # Notícias mais relevantes (mock com destaque atual)
 def noticias_relevantes():
@@ -101,12 +113,18 @@ if not carteira.empty:
 
     st.header("📌 Sugestão de Alocação")
     sugestoes = []
+    empresas_destacadas = []
 
     for i, row in carteira.iterrows():
         ticker = row['Ticker']
         peso = row['Peso (%)']
         price, target = get_target_price_yfinance(ticker)
         upside = round((target - price) / price * 100, 2) if price and target else None
+
+        # Análise histórica do desempenho
+        desempenho_historico = analise_historica(ticker, "1y")
+        if desempenho_historico is not None and desempenho_historico > 20:  # Exemplo de filtro
+            empresas_destacadas.append(ticker)
 
         recomendacao = "Manter"
         peso_sugerido = peso
@@ -134,5 +152,11 @@ if not carteira.empty:
         df_sugestoes['Peso Sugerido (%)'] = round(df_sugestoes['Peso Sugerido (%)'] / total * 100, 2)
 
     st.dataframe(df_sugestoes)
+
+    st.header("🔍 Empresas com Desempenho Destacado")
+    if empresas_destacadas:
+        st.markdown(f"As seguintes empresas tiveram um desempenho destacado no último ano com mais de 20% de retorno acumulado: {', '.join(empresas_destacadas)}")
+    else:
+        st.markdown("Nenhuma empresa teve desempenho destacado com base no critério de 20% de retorno anual.")
 else:
     st.info("Por favor, envie sua carteira ou insira ativos manualmente para continuar.")
