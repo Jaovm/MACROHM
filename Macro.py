@@ -102,9 +102,19 @@ def sugerir_ativos_por_cenario():
         "Recessão": ["Utilities", "Alimentos", "Saúde"],
         "Dólar em Alta": ["Exportadoras", "Mineração", "Petróleo"]
     }
-    cenario = st.sidebar.selectbox("Selecione um cenário macroeconômico", [""] + list(cenarios.keys()))
+
+    cenario = st.sidebar.selectbox("Selecione um cenário macroeconômico", ["" ] + list(cenarios.keys()))
     if cenario:
         st.sidebar.info(f"Setores/ativos que tendem a se beneficiar: {', '.join(cenarios[cenario])}")
+        ativos_sugeridos = cenarios[cenario]
+        ativos_selecionados = st.sidebar.multiselect(
+            "Selecione os ativos relacionados aos cenários:",
+            ativos_sugeridos
+        )
+        if ativos_selecionados:
+            st.sidebar.write("Ativos selecionados:", ativos_selecionados)
+            return ativos_selecionados
+    return []
 
 def exibir_resultados(dados, pesos_informados):
     retorno_medio, cov_matrix = calcular_retorno_cov(dados)
@@ -143,6 +153,9 @@ def exibir_resultados(dados, pesos_informados):
     plotar_grafico(resultados)
 
 def rodar_analise(tickers_dict, start, end):
+    ativos_selecionados = sugerir_ativos_por_cenario()
+    if ativos_selecionados:
+        tickers_dict.update({ativo: tickers_dict.get(ativo, 0.0) for ativo in ativos_selecionados})
     dados = baixar_dados(list(tickers_dict.keys()), start, end)
     if not dados.empty:
         exibir_resultados(dados, tickers_dict)
