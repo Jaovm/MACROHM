@@ -77,12 +77,21 @@ st.header("📁 Sua Carteira Atual")
 arquivo = st.file_uploader("Envie um arquivo CSV com colunas: Ticker, Peso (%)", type=["csv"])
 
 carteira_manual = [
-    {"Ticker": "ITUB4.SA", "Peso (%)": 25},
-    {"Ticker": "WEGE3.SA", "Peso (%)": 20},
-    {"Ticker": "PETR4.SA", "Peso (%)": 15},
-    {"Ticker": "VALE3.SA", "Peso (%)": 15},
-    {"Ticker": "B3SA3.SA", "Peso (%)": 10},
-    {"Ticker": "RENT3.SA", "Peso (%)": 15},
+    {"Ticker": "AGRO3.SA", "Peso (%)": 10},
+    {"Ticker": "BBAS3.SA", "Peso (%)": 1.2},
+    {"Ticker": "BBSE3.SA", "Peso (%)": 6.5},
+    {"Ticker": "BPAC11.SA", "Peso (%)": 10.6},
+    {"Ticker": "EGIE3.SA", "Peso (%)": 5},
+    {"Ticker": "ITUB3.SA", "Peso (%)": 0.5},
+    {"Ticker": "PRIO3.SA", "Peso (%)": 15},
+    {"Ticker": "PSSA3.SA", "Peso (%)": 15},
+    {"Ticker": "SAPR3.SA", "Peso (%)": 6.7},
+    {"Ticker": "SBSP3.SA", "Peso (%)": 4},
+    {"Ticker": "VIVT3.SA", "Peso (%)": 6.4},
+    {"Ticker": "WEGE3.SA", "Peso (%)": 15},
+    {"Ticker": "TOTS3.SA", "Peso (%)": 1},
+    {"Ticker": "B3SA3.SA", "Peso (%)": 0.1},
+    {"Ticker": "TAEE3.SA", "Peso (%)": 3},
 ]
 
 st.markdown("### Ou adicione ativos manualmente:")
