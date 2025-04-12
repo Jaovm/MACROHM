@@ -21,17 +21,17 @@ if 'tickers_dict' not in st.session_state:
     }
 
 st.sidebar.header("Gerenciar Tickers")
-novo_ticker = st.sidebar.text_input("Novo ticker (ex: PETR4.SA)")
-peso_ticker = st.sidebar.number_input("Peso (%)", min_value=0.0, max_value=1.0, step=0.01)
-if st.sidebar.button("Adicionar ticker") and novo_ticker:
+novo_ticker = st.sidebar.text_input("Novo ticker (ex: PETR4.SA)", key="novo_ticker")
+peso_ticker = st.sidebar.number_input("Peso (%)", min_value=0.0, max_value=1.0, step=0.01, key="peso_ticker")
+if st.sidebar.button("Adicionar ticker", key="adicionar_ticker") and novo_ticker:
     st.session_state.tickers_dict[novo_ticker.upper()] = peso_ticker
 
-remover_ticker = st.sidebar.selectbox("Remover ticker", [""] + list(st.session_state.tickers_dict.keys()))
-if st.sidebar.button("Remover") and remover_ticker:
+remover_ticker = st.sidebar.selectbox("Remover ticker", [""] + list(st.session_state.tickers_dict.keys()), key="remover_ticker")
+if st.sidebar.button("Remover", key="remover_ticker_btn") and remover_ticker:
     st.session_state.tickers_dict.pop(remover_ticker, None)
 
-min_aloc = st.sidebar.slider("Alocação mínima por ativo (%)", 0.0, 0.1, 0.0, 0.01)
-max_aloc = st.sidebar.slider("Alocação máxima por ativo (%)", 0.1, 1.0, 0.3, 0.01)
+min_aloc = st.sidebar.slider("Alocação mínima por ativo (%)", 0.0, 0.1, 0.0, 0.01, key="min_aloc")
+max_aloc = st.sidebar.slider("Alocação máxima por ativo (%)", 0.1, 1.0, 0.3, 0.01, key="max_aloc")
 
 @st.cache_data(show_spinner=False)
 def baixar_dados(tickers, start, end):
@@ -103,13 +103,13 @@ def sugerir_ativos_por_cenario():
         "Dólar em Alta": ["Exportadoras", "Mineração", "Petróleo"]
     }
 
-    cenario = st.sidebar.selectbox("Selecione um cenário macroeconômico", ["" ] + list(cenarios.keys()))
+    cenario = st.sidebar.selectbox("Selecione um cenário macroeconômico", [""] + list(cenarios.keys()), key="cenario_macroeconomico")
     if cenario:
         st.sidebar.info(f"Setores/ativos que tendem a se beneficiar: {', '.join(cenarios[cenario])}")
         ativos_sugeridos = cenarios[cenario]
         ativos_selecionados = st.sidebar.multiselect(
             "Selecione os ativos relacionados aos cenários:",
-            ativos_sugeridos
+            ativos_sugeridos, key="ativos_sugeridos"
         )
         if ativos_selecionados:
             st.sidebar.write("Ativos selecionados:", ativos_selecionados)
