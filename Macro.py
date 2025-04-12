@@ -87,7 +87,7 @@ def ajustar_alocacao(carteira, setores_bull, setores_bear):
         ticker = row['Ticker']
         peso = row['Peso (%)']
         price, target = get_target_price_yfinance(ticker)
-        retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
+        retorno_medio = analise_historica_anos_similares(ticker, anos_simelhantes)
 
         recomendacao = "Manter"
         peso_sugerido = peso
@@ -200,6 +200,8 @@ if not carteira.empty:
 
     # Resumo das empresas em oportunidade
     empresas_oportunidade = []
+    motivos_oportunidade = []
+
     for i, row in df_sugestoes.iterrows():
         if row["Recomendação"] == "Aumentar" and row["Peso Sugerido (%)"] > 5:  # Filtra as empresas com recomendação para aumentar e com peso sugerido relevante
             empresas_oportunidade.append({
@@ -208,10 +210,19 @@ if not carteira.empty:
                 "Preço Alvo": row["Preço Alvo"],
                 "Peso Sugerido (%)": row["Peso Sugerido (%)"]
             })
+            # Motivos para as empresas estarem em oportunidade
+            motivo = f"{row['Ticker']} está em oportunidade devido a seu setor ser favorecido e seu bom desempenho histórico em cenários semelhantes ao atual."
+            if row["Preço Alvo"] and row["Preço Alvo"] > row["Preço Atual"]:
+                motivo += " Além disso, o preço alvo está acima do preço atual, sugerindo potencial de valorização."
+            motivos_oportunidade.append(motivo)
     
     if empresas_oportunidade:
         st.header("📈 Empresas em Oportunidade")
         df_oportunidade = pd.DataFrame(empresas_oportunidade)
         st.dataframe(df_oportunidade)
+
+        st.header("📝 Motivo das Oportunidades")
+        for motivo in motivos_oportunidade:
+            st.markdown(f"- {motivo}")
     else:
         st.markdown("Não há empresas em oportunidade com base nos critérios de recomendação.")
