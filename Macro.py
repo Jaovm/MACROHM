@@ -86,6 +86,32 @@ def analisar_cenario_com_noticias(noticias):
 
     return resumo, setores_favoraveis, setores_alerta
 
+# Função para gerar o resumo das empresas que se destacam
+def gerar_resumo_empresas_destaque(carteira, anos_similares):
+    empresas_destaque = []
+    for i, row in carteira.iterrows():
+        ticker = row['Ticker']
+        price, target = get_target_price_yfinance(ticker)
+        retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
+
+        if retorno_medio is not None and retorno_medio > 15:
+            empresas_destaque.append({
+                "Ticker": ticker,
+                "Retorno Médio em Anos Similares (%)": retorno_medio,
+                "Motivo": f"Desempenho superior ao médio histórico nos anos {', '.join(map(str, anos_similares))}."
+            })
+
+        if price and target:
+            upside = round((target - price) / price * 100, 2)
+            if upside and upside > 15:
+                empresas_destaque.append({
+                    "Ticker": ticker,
+                    "Retorno Médio em Anos Similares (%)": retorno_medio if retorno_medio else "Não disponível",
+                    "Motivo": "Preço alvo sugere um alto potencial de valorização."
+                })
+
+    return empresas_destaque
+
 # Upload da carteira
 st.header("📁 Sua Carteira Atual")
 arquivo = st.file_uploader("Envie um arquivo CSV com colunas: Ticker, Peso (%)", type=["csv"])
@@ -144,6 +170,8 @@ if not carteira.empty:
     sugestoes = []
     empresas_destaque_historico = []
 
+    # Cálculo do peso total
+    peso_total = 0
     for i, row in carteira.iterrows():
         ticker = row['Ticker']
         peso = row['Peso (%)']
@@ -160,6 +188,7 @@ if not carteira.empty:
                 recomendacao = "Reduzir"
                 peso_sugerido = max(peso * 0.8, 0)
 
+        peso_total += peso_sugerido
         sugestoes.append({
             "Ticker": ticker,
             "Peso Atual (%)": peso,
@@ -170,9 +199,19 @@ if not carteira.empty:
             "Peso Sugerido (%)": round(peso_sugerido, 2)
         })
 
+    # Normalizar os pesos sugeridos para que o total seja 100%
+    if peso_total > 0:
+        fator_normalizacao = 100 / peso_total
+        for sugestao in sugestoes:
+            sugestao["Peso Sugerido (%)"] = round(sugestao["Peso Sugerido (%)"] * fator_normalizacao, 2)
+
     df_sugestoes = pd.DataFrame(sugestoes)
-    
-    total = df_sugestoes['Peso Sugerido (%)'].sum()
-    st.write(f"**Total Peso Sugerido:** {total:.2f}%")
-    
+
+    st.write(f"**Total Peso Sugerido:** 100%")
     st.dataframe(df_sugestoes)
+
+    # Gerar e exibir o resumo das empresas que se destacam
+    empresas_destaque = gerar_resumo_empresas_destaque(carteira, anos_similares)
+    st.markdown("### Empresas que se Destacam no Cenário Atual:")
+    for empresa in empresas_destaque:
+        st.markdown(f"- **{empresa['Ticker']}**: {empresa['Motivo']}")
