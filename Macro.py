@@ -11,6 +11,16 @@ st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
 st.markdown("""
 Este app analisa **notícias econômicas atuais** e sua **carteira** para sugerir uma **nova alocação**.
 Além disso, compara os preços atuais dos ativos com os **preços alvo dos analistas** e destaca empresas que performaram bem em **cenários econômicos semelhantes no passado**.
+
+### 🧠 Critérios de Seleção de Empresas Favorecidas
+
+1. **Setores Favorecidos pelo Cenário Atual:**
+   - Análise de palavras-chave em notícias reais usando a GNews API.
+   - Exemplo: "desemprego em queda" favorece o setor de consumo.
+
+2. **Desempenho Histórico em Cenários Semelhantes:**
+   - Empresas que performaram bem em anos similares (ex: 2019, 2022) são destacadas.
+   - Considera-se retorno médio superior a 15% nesses anos como destaque.
 """)
 
 # Função para obter preço atual e preço alvo do Yahoo Finance
@@ -28,7 +38,8 @@ def get_target_price_yfinance(ticker):
 def analise_historica_anos_similares(ticker, anos_semelhantes):
     try:
         stock = yf.Ticker(ticker)
-        hist = stock.history(start="2017-01-01", end="2024-12-31")["Close"]
+        hoje = datetime.datetime.today().strftime('%Y-%m-%d')
+        hist = stock.history(start="2017-01-01", end=hoje)["Close"]
         retornos = {}
         for ano in anos_semelhantes:
             dados_ano = hist[hist.index.year == ano]
