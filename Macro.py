@@ -156,7 +156,7 @@ def exibir_resultados(dados, pesos_informados):
     plotar_grafico(resultados)
 
 def rodar_analise(tickers_dict, start, end):
-    dados = baixar_dados(tickers_dict.keys(), start, end)
+    dados = baixar_dados(list(tickers_dict.keys(), start, end)
     if not dados.empty:
         exibir_resultados(dados, tickers_dict)
     else:
