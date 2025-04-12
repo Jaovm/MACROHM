@@ -8,19 +8,32 @@ import streamlit as st
 
 st.set_page_config(layout="wide")
 
-# Lista de ações e pesos fundamentados iniciais
-def get_tickers_dict():
-    return {
+# Configurações iniciais
+start_date = '2017-01-01'
+end_date = pd.Timestamp.today().strftime('%Y-%m-%d')
+
+if 'tickers_dict' not in st.session_state:
+    st.session_state.tickers_dict = {
         'AGRO3.SA': 0.10, 'BBAS3.SA': 0.012, 'BBSE3.SA': 0.065, 'BPAC11.SA': 0.106,
         'EGIE3.SA': 0.05, 'ITUB3.SA': 0.005, 'PRIO3.SA': 0.15, 'PSSA3.SA': 0.15,
         'SAPR3.SA': 0.067, 'SBSP3.SA': 0.04, 'VIVT3.SA': 0.064, 'WEGE3.SA': 0.15,
         'TOTS3.SA': 0.01, 'B3SA3.SA': 0.001, 'TAEE3.SA': 0.03
     }
 
-start_date = '2017-01-01'
-end_date = pd.Timestamp.today().strftime('%Y-%m-%d')
+st.sidebar.header("Gerenciar Tickers")
+novo_ticker = st.sidebar.text_input("Novo ticker (ex: PETR4.SA)")
+peso_ticker = st.sidebar.number_input("Peso (%)", min_value=0.0, max_value=1.0, step=0.01)
+if st.sidebar.button("Adicionar ticker") and novo_ticker:
+    st.session_state.tickers_dict[novo_ticker.upper()] = peso_ticker
 
-@st.cache_data
+remover_ticker = st.sidebar.selectbox("Remover ticker", [""] + list(st.session_state.tickers_dict.keys()))
+if st.sidebar.button("Remover") and remover_ticker:
+    st.session_state.tickers_dict.pop(remover_ticker, None)
+
+min_aloc = st.sidebar.slider("Alocação mínima por ativo (%)", 0.0, 0.1, 0.0, 0.01)
+max_aloc = st.sidebar.slider("Alocação máxima por ativo (%)", 0.1, 1.0, 0.3, 0.01)
+
+@st.cache_data(show_spinner=False)
 def baixar_dados(tickers, start, end):
     try:
         df = yf.download(tickers, start=start, end=end, group_by='ticker', auto_adjust=True)
@@ -37,12 +50,15 @@ def calcular_retorno_cov(dados):
     cov_matrix = LedoitWolf().fit(retornos).covariance_ * 252
     return retorno_medio, cov_matrix
 
-def simular_carteiras(retorno_medio, cov_matrix, num_portfolios=500000, rf=0.0):
+def simular_carteiras(retorno_medio, cov_matrix, num_portfolios=100000, rf=0.0):
     n = len(retorno_medio)
     resultados = []
     pesos_lista = []
     for _ in range(num_portfolios):
-        pesos = np.random.dirichlet(np.ones(n), size=1)[0]
+        while True:
+            pesos = np.random.dirichlet(np.ones(n), size=1)[0]
+            if all(min_aloc <= w <= max_aloc for w in pesos):
+                break
         retorno = np.dot(pesos, retorno_medio)
         risco = np.sqrt(np.dot(pesos.T, np.dot(cov_matrix, pesos)))
         sharpe = (retorno - rf) / risco if risco != 0 else 0
@@ -76,6 +92,19 @@ def plotar_grafico(resultados):
     plt.ylabel('Retorno Esperado')
     plt.title('Fronteira Eficiente - Simulação de Monte Carlo')
     st.pyplot(plt.gcf())
+
+def sugerir_ativos_por_cenario():
+    st.sidebar.subheader("Cenário Macroeconômico")
+    cenarios = {
+        "Alta de Juros": ["Bancos", "Seguradoras", "Tesouro Direto"],
+        "Inflação em Alta": ["Setor de energia", "Commodities"],
+        "PIB em Crescimento": ["Varejo", "Construção Civil", "Tecnologia"],
+        "Recessão": ["Utilities", "Alimentos", "Saúde"],
+        "Dólar em Alta": ["Exportadoras", "Mineração", "Petróleo"]
+    }
+    cenario = st.sidebar.selectbox("Selecione um cenário macroeconômico", [""] + list(cenarios.keys()))
+    if cenario:
+        st.sidebar.info(f"Setores/ativos que tendem a se beneficiar: {', '.join(cenarios[cenario])}")
 
 def exibir_resultados(dados, pesos_informados):
     retorno_medio, cov_matrix = calcular_retorno_cov(dados)
@@ -120,22 +149,5 @@ def rodar_analise(tickers_dict, start, end):
     else:
         st.error("Erro ao carregar os dados. Verifique os tickers ou a conexão.")
 
-# Interface para ajustes manuais de tickers e pesos
-if 'tickers_dict' not in st.session_state:
-    st.session_state.tickers_dict = get_tickers_dict()
-
-st.sidebar.header("Gerenciar Tickers")
-novo_ticker = st.sidebar.text_input("Novo Ticker (ex: PETR4.SA)")
-novo_peso = st.sidebar.number_input("Peso", min_value=0.0, max_value=1.0, step=0.001, format="%.3f")
-
-if st.sidebar.button("Adicionar Ticker"):
-    if novo_ticker and novo_peso > 0:
-        st.session_state.tickers_dict[novo_ticker.upper()] = novo_peso
-
-remover_ticker = st.sidebar.selectbox("Remover Ticker", options=[""] + list(st.session_state.tickers_dict.keys()))
-if st.sidebar.button("Remover") and remover_ticker:
-    st.session_state.tickers_dict.pop(remover_ticker, None)
-
-st.sidebar.markdown("---")
-
+sugerir_ativos_por_cenario()
 rodar_analise(st.session_state.tickers_dict, start_date, end_date)
