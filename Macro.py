@@ -3,6 +3,7 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 import requests
+import datetime
 
 st.set_page_config(page_title="Sugestão de Alocação Inteligente", layout="wide")
 st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
@@ -40,40 +41,39 @@ def analise_historica_anos_similares(ticker, anos_semelhantes):
         print(f"Erro ao calcular retorno histórico para {ticker}: {e}")
         return None
 
-# Buscar notícias econômicas reais da API GNews
-def buscar_noticias_reais():
-    api_key = "f81e45d8e741c24dfe4971f5403f5a32"
-    url = f"https://gnews.io/api/v4/search?q=economia+brasil&lang=pt&country=br&token={api_key}&max=5"
+# Busca notícias reais usando GNews API
+def noticias_reais(api_key):
+    url = f"https://gnews.io/api/v4/search?q=economia+brasil&lang=pt&country=br&max=5&token={api_key}"
     try:
         response = requests.get(url)
         data = response.json()
-        noticias = [artigo["title"] for artigo in data.get("articles", [])]
-        return noticias if noticias else ["Nenhuma notícia encontrada."]
+        noticias = [article["title"] for article in data.get("articles", [])]
+        return noticias
     except Exception as e:
         print(f"Erro ao buscar notícias: {e}")
-        return ["Erro ao buscar notícias."]
+        return []
 
-# Simulação de análise de cenário econômico (mantida)
-def analisar_cenario():
-    resumo = """
-    **Resumo Econômico Atual:**
-    - Crescimento do PIB em desaceleração.
-    - Inflação persistente e juros altos.
-    - Mercado de trabalho aquecido.
-    - Aumento de gastos do governo gera alerta fiscal.
+# Simulação de análise de cenário com base em notícias reais
+def analisar_cenario_com_noticias(noticias):
+    setores_favoraveis = []
+    setores_alerta = []
+    resumo = ""
 
-    **Setores Favorecidos:**
-    - Consumo cíclico
-    - Construção civil
-    - Tecnologia nacional
+    for noticia in noticias:
+        lower = noticia.lower()
+        if "inflação" in lower or "juros altos" in lower:
+            setores_alerta.extend(["bancos", "imobiliário"])
+        if "desemprego em queda" in lower or "consumo" in lower:
+            setores_favoraveis.append("consumo")
+        if "gastos públicos" in lower or "governo" in lower:
+            setores_favoraveis.append("construção")
+        if "importação" in lower or "tarifa" in lower:
+            setores_alerta.append("exportação")
 
-    **Setores com alerta:**
-    - Exportadoras (efeito câmbio e barreiras comerciais)
-    - Bancos (margens pressionadas)
-    - Energia (volatilidade global)
-    """
-    setores_favoraveis = ["consumo", "construção", "tecnologia"]
-    setores_alerta = ["exportação", "bancos", "energia"]
+    resumo += "\n".join([f"- {n}" for n in noticias])
+    setores_favoraveis = list(set(setores_favoraveis))
+    setores_alerta = list(set(setores_alerta))
+
     return resumo, setores_favoraveis, setores_alerta
 
 # Upload da carteira
@@ -115,12 +115,16 @@ if not carteira.empty:
     st.dataframe(carteira)
 
     st.header("🌐 Análise de Cenário Econômico")
-    st.markdown("### 📰 Notícias Econômicas Recentes")
-    for n in buscar_noticias_reais():
-        st.markdown(f"- {n}")
 
-    resumo, setores_bull, setores_bear = analisar_cenario()
+    api_key = st.secrets["GNEWS_API_KEY"] if "GNEWS_API_KEY" in st.secrets else "f81e45d8e741c24dfe4971f5403f5a32"
+    noticias = noticias_reais(api_key)
+    resumo, setores_bull, setores_bear = analisar_cenario_com_noticias(noticias)
+
+    st.markdown("**Notícias Recentes:**")
     st.markdown(resumo)
+
+    st.markdown("**Setores Favorecidos:** " + ", ".join(setores_bull))
+    st.markdown("**Setores com Alerta:** " + ", ".join(setores_bear))
 
     st.header("📌 Sugestão de Alocação")
     sugestoes = []
