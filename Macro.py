@@ -214,7 +214,7 @@ if not carteira.empty:
             "Peso Sugerido (%)": round(peso_sugerido, 2)
         })
 
-    # Normalizar os pesos sugeridos para que o total seja 100%
+    # Normalizar os pesos sugeridos para que o total seja 
     if peso_total > 0:
         fator_normalizacao = 100 / peso_total
         for sugestao in sugestoes:
