@@ -20,12 +20,35 @@ start_date = '2017-01-01'
 end_date = pd.Timestamp.today().strftime('%Y-%m-%d')
 
 @st.cache_data
-def baixar_dados(tickers, start, end):
+def baixar_dados(tickers, start, end, limite_faltas=0.1):
     try:
-        df = yf.download(list(tickers.keys()), start=start, end=end, group_by='ticker', auto_adjust=True)
-        df = df.stack(level=0).rename_axis(index=['Date', 'Ticker']).reset_index()
+        df_raw = yf.download(list(tickers.keys()), start=start, end=end, group_by='ticker', auto_adjust=True)
+
+        if isinstance(df_raw.columns, pd.MultiIndex):
+            ativos_baixados = df_raw.columns.levels[0]
+        else:
+            ativos_baixados = df_raw.columns.tolist()
+
+        ativos_esperados = list(tickers.keys())
+        ativos_faltando = set(ativos_esperados) - set(ativos_baixados)
+
+        if ativos_faltando:
+            st.warning(f"Não foi possível baixar dados para: {', '.join(ativos_faltando)}")
+
+        df = df_raw.stack(level=0).rename_axis(index=['Date', 'Ticker']).reset_index()
         df = df.pivot(index='Date', columns='Ticker', values='Close')
-        return df.dropna(axis=1, how='any')  # Remove ativos com dados ausentes
+
+        df = df.loc[:, df.isnull().mean() < limite_faltas]
+        df = df.fillna(method='ffill').fillna(method='bfill')
+        df = df.dropna()
+
+        if df.empty:
+            st.error("Nenhum dado válido foi carregado após o tratamento.")
+        else:
+            st.success(f"{len(df.columns)} ativos carregados com sucesso.")
+
+        return df
+
     except Exception as e:
         st.error(f"Erro ao carregar os dados: {e}")
         return pd.DataFrame()
