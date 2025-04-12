@@ -24,57 +24,23 @@ def get_target_price_yfinance(ticker):
         print(f"Erro ao buscar dados de {ticker}: {e}")
         return None, None
 
-# Função para comparar o cenário atual com anos passados baseado em inflação e taxa de juros
-def comparar_cenario_atual_com_historico():
-    # Dados históricos fictícios de inflação e taxa de juros (exemplo)
-    dados_historicos = {
-        2017: {"inflacao": 3.0, "taxa_juros": 7.0},
-        2018: {"inflacao": 4.0, "taxa_juros": 6.5},
-        2019: {"inflacao": 3.5, "taxa_juros": 5.0},
-        2020: {"inflacao": 2.7, "taxa_juros": 2.0},
-        2021: {"inflacao": 8.0, "taxa_juros": 4.25},
-        2022: {"inflacao": 10.0, "taxa_juros": 13.75},
-        2023: {"inflacao": 6.5, "taxa_juros": 12.0},
-    }
-
-    # Cenário atual fictício (esses valores podem ser atualizados com dados reais)
-    inflacao_atual = 6.0  # Exemplo de inflação atual
-    taxa_juros_atual = 12.5  # Exemplo de taxa de juros atual
-
-    # Calcular a distância entre o cenário atual e os anos passados
-    distancias = {}
-    for ano, dados in dados_historicos.items():
-        distancia = np.abs(dados["inflacao"] - inflacao_atual) + np.abs(dados["taxa_juros"] - taxa_juros_atual)
-        distancias[ano] = distancia
-
-    # Selecionar os 3 anos mais semelhantes
-    anos_similares = sorted(distancias, key=distancias.get)[:3]
-    return anos_similares
-
-# Função para obter os retornos históricos de uma ação
-def analise_historica_anos_similares(ticker, anos_similares):
-    stock = yf.Ticker(ticker)
-    retorno_medio = []
-    
-    for ano in anos_similares:
-        try:
-            # Baixar os dados históricos para o ano similar
-            data_inicial = f"{ano}-01-01"
-            data_final = f"{ano}-12-31"
-            dados_ano = stock.history(start=data_inicial, end=data_final)
+# Análise de desempenho histórico durante anos semelhantes ao cenário atual
+def analise_historica_anos_similares(ticker, anos_semelhantes):
+    try:
+        stock = yf.Ticker(ticker)
+        hoje = datetime.datetime.today().strftime('%Y-%m-%d')
+        hist = stock.history(start="2017-01-01", end=hoje)["Close"]
+        retornos = {}
+        for ano in anos_semelhantes:
+            dados_ano = hist[hist.index.year == ano]
             if not dados_ano.empty:
-                # Calcular o retorno durante o ano
-                preco_inicial = dados_ano["Close"].iloc[0]
-                preco_final = dados_ano["Close"].iloc[-1]
-                retorno = (preco_final - preco_inicial) / preco_inicial * 100
-                retorno_medio.append(retorno)
-        except Exception as e:
-            print(f"Erro ao calcular retorno para {ticker} no ano {ano}: {e}")
-    
-    if retorno_medio:
-        return np.mean(retorno_medio)  # Retorno médio do ativo nos anos similares
-    else:
-        return None  # Caso não haja dados suficientes
+                retorno = dados_ano.pct_change().sum() * 100
+                retornos[ano] = retorno
+        media = np.mean(list(retornos.values())) if retornos else None
+        return media
+    except Exception as e:
+        print(f"Erro ao calcular retorno histórico para {ticker}: {e}")
+        return None
 
 # Busca notícias reais usando GNews API
 def noticias_reais(api_key):
@@ -111,19 +77,43 @@ def analisar_cenario_com_noticias(noticias):
 
     return resumo, setores_favoraveis, setores_alerta
 
-# Função para gerar o resumo das empresas que se destacam
-def gerar_resumo_empresas_destaque(carteira, anos_similares):
+# Função para gerar o resumo das empresas que se destacam com base no cenário macroeconômico
+def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear):
     empresas_destaque = []
+    
     for i, row in carteira.iterrows():
         ticker = row['Ticker']
         price, target = get_target_price_yfinance(ticker)
         retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
+
+        # Verificar em qual setor a empresa se encaixa e gerar o resumo baseado nas notícias
+        if "consumo" in setores_bull and "consumo" in ticker.lower():
+            empresas_destaque.append({
+                "Ticker": ticker,
+                "Retorno Médio em Anos Similares (%)": retorno_medio,
+                "Motivo": f"Setor de consumo favorecido pelas notícias econômicas atuais. Desempenho histórico positivo."
+            })
+
+        elif "construção" in setores_bull and "construção" in ticker.lower():
+            empresas_destaque.append({
+                "Ticker": ticker,
+                "Retorno Médio em Anos Similares (%)": retorno_medio,
+                "Motivo": f"Setor de construção favorecido pelas notícias econômicas atuais. Desempenho histórico positivo."
+            })
 
         if retorno_medio is not None and retorno_medio > 15:
             empresas_destaque.append({
                 "Ticker": ticker,
                 "Retorno Médio em Anos Similares (%)": retorno_medio,
                 "Motivo": f"Desempenho superior ao médio histórico nos anos {', '.join(map(str, anos_similares))}."
+            })
+
+        # Se o setor estiver em alerta e o desempenho histórico for negativo, adicionar ao alerta
+        if "exportação" in setores_bear and "exportação" in ticker.lower():
+            empresas_destaque.append({
+                "Ticker": ticker,
+                "Retorno Médio em Anos Similares (%)": retorno_medio,
+                "Motivo": f"Setor de exportação em alerta devido a notícias econômicas. Desempenho histórico fraco."
             })
 
         if price and target:
@@ -178,7 +168,7 @@ if not carteira.empty:
     st.header("🌐 Análise de Cenário Econômico")
 
     # Obter anos semelhantes ao cenário atual com base em inflação e taxa de juros
-    anos_similares = comparar_cenario_atual_com_historico()
+    anos_similares = [2019, 2022]  # Exemplo de anos semelhantes (ajustar conforme necessário)
     st.markdown(f"**Anos Semelhantes ao Cenário Atual (Baseado em Inflação e Juros):** {', '.join(map(str, anos_similares))}")
 
     api_key = st.secrets["GNEWS_API_KEY"] if "GNEWS_API_KEY" in st.secrets else "f81e45d8e741c24dfe4971f5403f5a32"
@@ -235,8 +225,8 @@ if not carteira.empty:
     st.write(f"**Total Peso Sugerido:** 100%")
     st.dataframe(df_sugestoes)
 
-    # Gerar e exibir o resumo das empresas que se destacam
-    empresas_destaque = gerar_resumo_empresas_destaque(carteira, anos_similares)
-    st.markdown("### Empresas que se Destacam no Cenário Atual:")
+    # Gerar e exibir o resumo das empresas que se destacam com base no cenário macroeconômico
+    empresas_destaque = gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear)
+    st.markdown("### Empresas que se Destacam no Cenário Atual com Base nas Notícias Econômicas:")
     for empresa in empresas_destaque:
         st.markdown(f"- **{empresa['Ticker']}**: {empresa['Motivo']}")
