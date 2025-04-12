@@ -11,16 +11,6 @@ st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
 st.markdown("""
 Este app analisa **notícias econômicas atuais** e sua **carteira** para sugerir uma **nova alocação**.
 Além disso, compara os preços atuais dos ativos com os **preços alvo dos analistas** e destaca empresas que performaram bem em **cenários econômicos semelhantes no passado**.
-
-### 🧠 Critérios de Seleção de Empresas Favorecidas
-
-1. **Setores Favorecidos pelo Cenário Atual:**
-   - Análise de palavras-chave em notícias reais usando a GNews API.
-   - Exemplo: "desemprego em queda" favorece o setor de consumo.
-
-2. **Desempenho Histórico em Cenários Semelhantes:**
-   - Empresas que performaram bem em anos similares (ex: 2019, 2022) são destacadas.
-   - Considera-se retorno médio superior a 15% nesses anos como destaque.
 """)
 
 # Função para obter preço atual e preço alvo do Yahoo Finance
@@ -34,23 +24,32 @@ def get_target_price_yfinance(ticker):
         print(f"Erro ao buscar dados de {ticker}: {e}")
         return None, None
 
-# Análise de desempenho histórico durante anos semelhantes ao cenário atual
-def analise_historica_anos_similares(ticker, anos_semelhantes):
-    try:
-        stock = yf.Ticker(ticker)
-        hoje = datetime.datetime.today().strftime('%Y-%m-%d')
-        hist = stock.history(start="2017-01-01", end=hoje)["Close"]
-        retornos = {}
-        for ano in anos_semelhantes:
-            dados_ano = hist[hist.index.year == ano]
-            if not dados_ano.empty:
-                retorno = dados_ano.pct_change().sum() * 100
-                retornos[ano] = retorno
-        media = np.mean(list(retornos.values())) if retornos else None
-        return media
-    except Exception as e:
-        print(f"Erro ao calcular retorno histórico para {ticker}: {e}")
-        return None
+# Função para comparar o cenário atual com anos passados baseado em inflação e taxa de juros
+def comparar_cenario_atual_com_historico():
+    # Dados históricos fictícios de inflação e taxa de juros (exemplo)
+    dados_historicos = {
+        2017: {"inflacao": 3.0, "taxa_juros": 7.0},
+        2018: {"inflacao": 4.0, "taxa_juros": 6.5},
+        2019: {"inflacao": 3.5, "taxa_juros": 5.0},
+        2020: {"inflacao": 2.7, "taxa_juros": 2.0},
+        2021: {"inflacao": 8.0, "taxa_juros": 4.25},
+        2022: {"inflacao": 10.0, "taxa_juros": 13.75},
+        2023: {"inflacao": 6.5, "taxa_juros": 12.0},
+    }
+
+    # Cenário atual fictício (esses valores podem ser atualizados com dados reais)
+    inflacao_atual = 6.0  # Exemplo de inflação atual
+    taxa_juros_atual = 12.5  # Exemplo de taxa de juros atual
+
+    # Calcular a distância entre o cenário atual e os anos passados
+    distancias = {}
+    for ano, dados in dados_historicos.items():
+        distancia = np.abs(dados["inflacao"] - inflacao_atual) + np.abs(dados["taxa_juros"] - taxa_juros_atual)
+        distancias[ano] = distancia
+
+    # Selecionar os 3 anos mais semelhantes
+    anos_similares = sorted(distancias, key=distancias.get)[:3]
+    return anos_similares
 
 # Busca notícias reais usando GNews API
 def noticias_reais(api_key):
@@ -127,6 +126,10 @@ if not carteira.empty:
 
     st.header("🌐 Análise de Cenário Econômico")
 
+    # Obter anos semelhantes ao cenário atual com base em inflação e taxa de juros
+    anos_similares = comparar_cenario_atual_com_historico()
+    st.markdown(f"**Anos Semelhantes ao Cenário Atual (Baseado em Inflação e Juros):** {', '.join(map(str, anos_similares))}")
+
     api_key = st.secrets["GNEWS_API_KEY"] if "GNEWS_API_KEY" in st.secrets else "f81e45d8e741c24dfe4971f5403f5a32"
     noticias = noticias_reais(api_key)
     resumo, setores_bull, setores_bear = analisar_cenario_com_noticias(noticias)
@@ -140,17 +143,12 @@ if not carteira.empty:
     st.header("📌 Sugestão de Alocação")
     sugestoes = []
     empresas_destaque_historico = []
-    anos_similares = [2019, 2022]
 
     for i, row in carteira.iterrows():
         ticker = row['Ticker']
         peso = row['Peso (%)']
         price, target = get_target_price_yfinance(ticker)
         upside = round((target - price) / price * 100, 2) if price and target else None
-
-        retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
-        if retorno_medio is not None and retorno_medio > 15:
-            empresas_destaque_historico.append((ticker, retorno_medio))
 
         recomendacao = "Manter"
         peso_sugerido = peso
@@ -175,15 +173,4 @@ if not carteira.empty:
     df_sugestoes = pd.DataFrame(sugestoes)
     total = df_sugestoes['Peso Sugerido (%)'].sum()
     if total > 0:
-        df_sugestoes['Peso Sugerido (%)'] = round(df_sugestoes['Peso Sugerido (%)'] / total * 100, 2)
-
-    st.dataframe(df_sugestoes)
-
-    st.header("📈 Empresas com Desempenho Histórico Destacado")
-    if empresas_destaque_historico:
-        destaque_df = pd.DataFrame(empresas_destaque_historico, columns=["Ticker", "Retorno Médio em Anos Similares (%)"])
-        st.dataframe(destaque_df.sort_values(by="Retorno Médio em Anos Similares (%)", ascending=False))
-    else:
-        st.markdown("Nenhuma empresa teve desempenho destacado em anos semelhantes ao atual.")
-else:
-    st.info("Por favor, envie sua carteira ou insira ativos manualmente para continuar.")
+        df_s
