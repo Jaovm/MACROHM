@@ -40,38 +40,64 @@ def get_target_price(ticker):
     except:
         return None, None
 
-# Simulação de análise de notícias (pode ser dinâmica com scraping)
+# Notícias mais relevantes (mock com destaque atual)
+def noticias_relevantes():
+    return [
+        "Inflação permanece acima da meta e Banco Central mantém juros elevados.",
+        "Desemprego em queda estimula setores de consumo interno.",
+        "Gastos públicos em alta pressionam cenário fiscal brasileiro.",
+        "Estados Unidos implementam tarifas que elevam custos de importações.",
+    ]
+
+# Simulação de análise de notícias
 def analisar_cenario():
     resumo = """
     **Resumo Econômico Atual:**
     - Crescimento do PIB em desaceleração.
-    - Inflação acima da meta e juros elevados.
-    - Desemprego em queda, impulsionando o consumo.
-    - Aumento de gastos públicos gera dúvidas fiscais.
+    - Inflação persistente e juros altos.
+    - Mercado de trabalho aquecido.
+    - Aumento de gastos do governo gera alerta fiscal.
 
     **Setores Favorecidos:**
     - Consumo cíclico
     - Construção civil
-    - Varejo
-    
+    - Tecnologia nacional
+
     **Setores com alerta:**
-    - Energia
-    - Exportadoras (risco externo)
-    - Bancos (impacto dos juros)
+    - Exportadoras (efeito câmbio e barreiras comerciais)
+    - Bancos (margens pressionadas)
+    - Energia (volatilidade global)
     """
-    setores_favoraveis = ["consumo", "construção", "varejo"]
-    setores_alerta = ["energia", "exportação", "bancos"]
+    setores_favoraveis = ["consumo", "construção", "tecnologia"]
+    setores_alerta = ["exportação", "bancos", "energia"]
     return resumo, setores_favoraveis, setores_alerta
 
 # Upload da carteira
 st.header("📁 Sua Carteira Atual")
 arquivo = st.file_uploader("Envie um arquivo CSV com colunas: Ticker, Peso (%)", type=["csv"])
 
-if arquivo:
-    carteira = pd.read_csv(arquivo)
+carteira_manual = []
+st.markdown("### Ou adicione ativos manualmente:")
+ticker_input = st.text_input("Ticker do ativo")
+peso_input = st.number_input("Peso (%)", min_value=0.0, max_value=100.0, step=0.1)
+
+if st.button("Adicionar ativo manualmente"):
+    if ticker_input and peso_input:
+        carteira_manual.append({"Ticker": ticker_input.upper(), "Peso (%)": peso_input})
+        st.success(f"{ticker_input.upper()} adicionado com sucesso.")
+
+carteira_csv = pd.read_csv(arquivo) if arquivo else pd.DataFrame()
+carteira_manual_df = pd.DataFrame(carteira_manual)
+carteira = pd.concat([carteira_csv, carteira_manual_df], ignore_index=True)
+
+if not carteira.empty:
     st.dataframe(carteira)
 
     st.header("🌐 Análise de Cenário Econômico")
+    noticias = noticias_relevantes()
+    for n in noticias:
+        st.markdown(f"- {n}")
+
     resumo, setores_bull, setores_bear = analisar_cenario()
     st.markdown(resumo)
 
@@ -85,11 +111,17 @@ if arquivo:
         upside = round((target - price) / price * 100, 2) if price and target else None
 
         recomendacao = "Manter"
-        comentario = ""
         if upside and upside > 15:
             recomendacao = "Aumentar"
         elif upside and upside < 0:
             recomendacao = "Reduzir"
+
+        if any(s in ticker.lower() for s in setores_bull):
+            if recomendacao == "Manter":
+                recomendacao = "Aumentar"
+        elif any(s in ticker.lower() for s in setores_bear):
+            if recomendacao == "Manter":
+                recomendacao = "Reduzir"
 
         sugestoes.append({
             "Ticker": ticker,
@@ -103,4 +135,4 @@ if arquivo:
     df_sugestoes = pd.DataFrame(sugestoes)
     st.dataframe(df_sugestoes)
 else:
-    st.info("Por favor, envie sua carteira para continuar.")
+    st.info("Por favor, envie sua carteira ou insira ativos manualmente para continuar.")
