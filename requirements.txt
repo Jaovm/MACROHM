@@ -1,6 +1,4 @@
-yfinance
-numpy
+streamlit
 pandas
-matplotlib
-seaborn
-scikit-learn
+requests
+beautifulsoup4
