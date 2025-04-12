@@ -51,6 +51,31 @@ def comparar_cenario_atual_com_historico():
     anos_similares = sorted(distancias, key=distancias.get)[:3]
     return anos_similares
 
+# Função para obter os retornos históricos de uma ação
+def analise_historica_anos_similares(ticker, anos_similares):
+    stock = yf.Ticker(ticker)
+    retorno_medio = []
+    
+    for ano in anos_similares:
+        try:
+            # Baixar os dados históricos para o ano similar
+            data_inicial = f"{ano}-01-01"
+            data_final = f"{ano}-12-31"
+            dados_ano = stock.history(start=data_inicial, end=data_final)
+            if not dados_ano.empty:
+                # Calcular o retorno durante o ano
+                preco_inicial = dados_ano["Close"].iloc[0]
+                preco_final = dados_ano["Close"].iloc[-1]
+                retorno = (preco_final - preco_inicial) / preco_inicial * 100
+                retorno_medio.append(retorno)
+        except Exception as e:
+            print(f"Erro ao calcular retorno para {ticker} no ano {ano}: {e}")
+    
+    if retorno_medio:
+        return np.mean(retorno_medio)  # Retorno médio do ativo nos anos similares
+    else:
+        return None  # Caso não haja dados suficientes
+
 # Busca notícias reais usando GNews API
 def noticias_reais(api_key):
     url = f"https://gnews.io/api/v4/search?q=economia+brasil&lang=pt&country=br&max=5&token={api_key}"
