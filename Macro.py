@@ -171,6 +171,8 @@ if not carteira.empty:
         })
 
     df_sugestoes = pd.DataFrame(sugestoes)
+    
     total = df_sugestoes['Peso Sugerido (%)'].sum()
-    if total > 0:
-        df_s
+    st.write(f"**Total Peso Sugerido:** {total:.2f}%")
+    
+    st.dataframe(df_sugestoes)
