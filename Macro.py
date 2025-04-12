@@ -8,11 +8,8 @@ import streamlit as st
 
 st.set_page_config(layout="wide")
 
-# Configurações iniciais
-start_date = '2017-01-01'
-end_date = pd.Timestamp.today().strftime('%Y-%m-%d')
-
-if 'tickers_dict' not in st.session_state:
+# Lista de ações e pesos fundamentados
+if "tickers_dict" not in st.session_state:
     st.session_state.tickers_dict = {
         'AGRO3.SA': 0.10, 'BBAS3.SA': 0.012, 'BBSE3.SA': 0.065, 'BPAC11.SA': 0.106,
         'EGIE3.SA': 0.05, 'ITUB3.SA': 0.005, 'PRIO3.SA': 0.15, 'PSSA3.SA': 0.15,
@@ -20,23 +17,30 @@ if 'tickers_dict' not in st.session_state:
         'TOTS3.SA': 0.01, 'B3SA3.SA': 0.001, 'TAEE3.SA': 0.03
     }
 
-st.sidebar.header("Gerenciar Tickers")
-novo_ticker = st.sidebar.text_input("Novo ticker (ex: PETR4.SA)", key="novo_ticker")
-peso_ticker = st.sidebar.number_input("Peso (%)", min_value=0.0, max_value=1.0, step=0.01, key="peso_ticker")
-if st.sidebar.button("Adicionar ticker", key="adicionar_ticker") and novo_ticker:
-    st.session_state.tickers_dict[novo_ticker.upper()] = peso_ticker
+# Adição e remoção manual de ativos
+st.sidebar.subheader("Editar Carteira")
+ticker_novo = st.sidebar.text_input("Adicionar novo ticker (ex: PETR4.SA)")
+peso_novo = st.sidebar.number_input("Peso do novo ticker", min_value=0.0, step=0.01)
 
-remover_ticker = st.sidebar.selectbox("Remover ticker", [""] + list(st.session_state.tickers_dict.keys()), key="remover_ticker")
-if st.sidebar.button("Remover", key="remover_ticker_btn") and remover_ticker:
-    st.session_state.tickers_dict.pop(remover_ticker, None)
+if st.sidebar.button("Adicionar Ticker") and ticker_novo:
+    st.session_state.tickers_dict[ticker_novo] = peso_novo
 
-min_aloc = st.sidebar.slider("Alocação mínima por ativo (%)", 0.0, 0.1, 0.0, 0.01, key="min_aloc")
-max_aloc = st.sidebar.slider("Alocação máxima por ativo (%)", 0.1, 1.0, 0.3, 0.01, key="max_aloc")
+ticker_remover = st.sidebar.selectbox("Remover ticker", [""] + list(st.session_state.tickers_dict.keys()))
+if st.sidebar.button("Remover") and ticker_remover:
+    st.session_state.tickers_dict.pop(ticker_remover, None)
 
-@st.cache_data(show_spinner=False)
+# Definição dos limites de alocação
+st.sidebar.subheader("Limites de Alocação")
+aloc_min = st.sidebar.slider("Alocação mínima (%)", 0.0, 100.0, 0.0) / 100
+aloc_max = st.sidebar.slider("Alocação máxima (%)", 0.0, 100.0, 100.0) / 100
+
+start_date = '2017-01-01'
+end_date = pd.Timestamp.today().strftime('%Y-%m-%d')
+
+@st.cache_data
 def baixar_dados(tickers, start, end):
     try:
-        df = yf.download(tickers, start=start, end=end, group_by='ticker', auto_adjust=True)
+        df = yf.download(list(tickers), start=start, end=end, group_by='ticker', auto_adjust=True, threads=True)
         df = df.stack(level=0).rename_axis(index=['Date', 'Ticker']).reset_index()
         df = df.pivot(index='Date', columns='Ticker', values='Close')
         return df.dropna(axis=1, how='any')
@@ -50,15 +54,14 @@ def calcular_retorno_cov(dados):
     cov_matrix = LedoitWolf().fit(retornos).covariance_ * 252
     return retorno_medio, cov_matrix
 
-def simular_carteiras(retorno_medio, cov_matrix, num_portfolios=100000, rf=0.0):
+def simular_carteiras(retorno_medio, cov_matrix, num_portfolios=10000, rf=0.0):
     n = len(retorno_medio)
     resultados = []
     pesos_lista = []
     for _ in range(num_portfolios):
-        while True:
-            pesos = np.random.dirichlet(np.ones(n), size=1)[0]
-            if all(min_aloc <= w <= max_aloc for w in pesos):
-                break
+        pesos = np.random.dirichlet(np.ones(n), size=1)[0]
+        if np.any(pesos < aloc_min) or np.any(pesos > aloc_max):
+            continue
         retorno = np.dot(pesos, retorno_medio)
         risco = np.sqrt(np.dot(pesos.T, np.dot(cov_matrix, pesos)))
         sharpe = (retorno - rf) / risco if risco != 0 else 0
@@ -94,30 +97,18 @@ def plotar_grafico(resultados):
     st.pyplot(plt.gcf())
 
 def sugerir_ativos_por_cenario():
-    st.sidebar.subheader("Cenário Macroeconômico")
     cenarios = {
-        "Alta de Juros": ["Bancos", "Seguradoras", "Tesouro Direto"],
-        "Inflação em Alta": ["Setor de energia", "Commodities"],
-        "PIB em Crescimento": ["Varejo", "Construção Civil", "Tecnologia"],
-        "Recessão": ["Utilities", "Alimentos", "Saúde"],
-        "Dólar em Alta": ["Exportadoras", "Mineração", "Petróleo"]
+        "Alta de Juros": ["BBAS3.SA", "ITUB3.SA", "B3SA3.SA"],
+        "Queda de Juros": ["WEGE3.SA", "TOTS3.SA", "PRIO3.SA"],
+        "Alta da Inflação": ["EGIE3.SA", "SAPR3.SA", "TAEE3.SA"],
+        "Estagnação Econômica": ["BBSE3.SA", "VIVT3.SA", "SBSP3.SA"]
     }
-
-    cenario = st.sidebar.selectbox("Selecione um cenário macroeconômico", [""] + list(cenarios.keys()), key="cenario_macroeconomico_unique")
-    
-    if cenario:
-        st.sidebar.info(f"Setores/ativos que tendem a se beneficiar: {', '.join(cenarios[cenario])}")
-        
-        ativos_sugeridos = cenarios[cenario]
-        
-        ativos_selecionados = st.sidebar.multiselect(
-            "Selecione os ativos relacionados aos cenários:",
-            ativos_sugeridos, key="ativos_sugeridos_unique"
-        )
-        
-        if ativos_selecionados:
-            st.sidebar.write("Ativos selecionados:", ativos_selecionados)
-            return ativos_selecionados
+    st.sidebar.markdown("---")
+    if st.sidebar.checkbox("Ativar sugestão por cenário macroeconômico"):
+        cenario = st.sidebar.selectbox("Selecione um cenário macroeconômico", [""] + list(cenarios.keys()), key="cenario_macro")
+        if cenario:
+            st.sidebar.info(f"Ativos sugeridos para {cenario}: {', '.join(cenarios[cenario])}")
+            return cenarios[cenario]
     return []
 
 def exibir_resultados(dados, pesos_informados):
@@ -157,14 +148,15 @@ def exibir_resultados(dados, pesos_informados):
     plotar_grafico(resultados)
 
 def rodar_analise(tickers_dict, start, end):
-    ativos_selecionados = sugerir_ativos_por_cenario()
-    if ativos_selecionados:
-        tickers_dict.update({ativo: tickers_dict.get(ativo, 0.0) for ativo in ativos_selecionados})
-    dados = baixar_dados(list(tickers_dict.keys()), start, end)
+    ativos_sugeridos = sugerir_ativos_por_cenario()
+    if ativos_sugeridos:
+        tickers_dict = {k: v for k, v in tickers_dict.items() if k in ativos_sugeridos}
+
+    dados = baixar_dados(tickers_dict.keys(), start, end)
     if not dados.empty:
         exibir_resultados(dados, tickers_dict)
     else:
         st.error("Erro ao carregar os dados. Verifique os tickers ou a conexão.")
 
-sugerir_ativos_por_cenario()
+# Execução principal
 rodar_analise(st.session_state.tickers_dict, start_date, end_date)
