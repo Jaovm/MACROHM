@@ -13,7 +13,7 @@ Este app analisa **notícias econômicas atuais** e sua **carteira** para sugeri
 Além disso, compara os preços atuais dos ativos com os **preços alvo dos analistas**.
 """)
 
-# Função para obter preço atual e preço alvo do Yahoo Finance
+# Função para obter preço atual, preço alvo e preço alvo médio do Yahoo Finance
 def get_target_price(ticker):
     try:
         # Preço atual com yfinance
@@ -27,9 +27,12 @@ def get_target_price(ticker):
         match = re.search(r'"targetMeanPrice":(\d+\.\d+)', r2.text)
         target = float(match.group(1)) if match else None
 
-        return price, target
+        # Preço alvo médio
+        mean_target = data.info.get("targetMeanPrice")
+
+        return price, target, mean_target
     except:
-        return None, None
+        return None, None, None
 
 # Notícias mais relevantes (mock com destaque atual)
 def noticias_relevantes():
@@ -115,7 +118,7 @@ if not carteira.empty:
     for i, row in carteira.iterrows():
         ticker = row['Ticker']
         peso = row['Peso (%)']
-        price, target = get_target_price(ticker)
+        price, target, mean_target = get_target_price(ticker)
         upside = round((target - price) / price * 100, 2) if price and target else None
 
         recomendacao = "Manter"
@@ -123,7 +126,7 @@ if not carteira.empty:
         if upside is not None:
             if upside > 15:
                 recomendacao = "Aumentar"
-                peso_sugerido = min(peso * 1.2, 20)
+                peso_sugerido = min(peso * 1.2, 20)  # Limita a no máximo 20%
             elif upside < 0:
                 recomendacao = "Reduzir"
                 peso_sugerido = max(peso * 0.8, 0)
@@ -133,6 +136,7 @@ if not carteira.empty:
             "Peso Atual (%)": peso,
             "Preço Atual": round(price, 2) if price else None,
             "Preço Alvo": round(target, 2) if target else None,
+            "Preço Alvo Médio": round(mean_target, 2) if mean_target else None,
             "Upside (%)": upside,
             "Recomendação": recomendacao,
             "Peso Sugerido (%)": round(peso_sugerido, 2)
