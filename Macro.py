@@ -174,8 +174,17 @@ resumo, setores_bull, setores_bear = analisar_cenario_com_noticias(noticias)
 # Exibir resumo de notícias e setores
 st.markdown("**Notícias Recentes:**")
 st.markdown(resumo)
-st.markdown("**Setores Favorecidos:** " + ", ".join(setores_bull))
-st.markdown("**Setores com Alerta:** " + ", ".join(setores_bear))
+
+# Exibir os setores favorecidos e com alerta
+if setores_bull:
+    st.markdown("**Setores Favorecidos:** " + ", ".join(setores_bull))
+else:
+    st.markdown("**Setores Favorecidos:** Nenhum setor identificado.")
+
+if setores_bear:
+    st.markdown("**Setores com Alerta:** " + ", ".join(setores_bear))
+else:
+    st.markdown("**Setores com Alerta:** Nenhum setor identificado.")
 
 # Upload da carteira
 st.header("📁 Sua Carteira Atual")
