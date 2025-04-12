@@ -4,13 +4,16 @@ import yfinance as yf
 import requests
 from bs4 import BeautifulSoup
 import re
+from sklearn.preprocessing import StandardScaler
+import scipy.cluster.hierarchy as sch
+import numpy as np
 
 st.set_page_config(page_title="Sugestão de Alocação Inteligente", layout="wide")
-st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
+st.title("📊 Sugestão de Alocação Baseada em Notícias e HRP")
 
 st.markdown("""
-Este app analisa **notícias econômicas atuais** e sua **carteira** para sugerir uma **nova alocação**.
-Além disso, compara os preços atuais dos ativos com os **preços alvo dos analistas**.
+Este app utiliza o **Hierarchical Risk Parity (HRP)** para sugerir uma nova alocação de ativos a partir do seu cenário macroeconômico e da sua carteira atual.
+Além disso, ele considera o **preço atual**, o **preço alvo** e o **preço alvo médio** dos analistas.
 """)
 
 # Função para obter preço atual, preço alvo e preço alvo médio do Yahoo Finance
@@ -43,28 +46,42 @@ def noticias_relevantes():
         "Estados Unidos implementam tarifas que elevam custos de importações.",
     ]
 
-# Simulação de análise de notícias
-def analisar_cenario():
-    resumo = """
-    **Resumo Econômico Atual:**
-    - Crescimento do PIB em desaceleração.
-    - Inflação persistente e juros altos.
-    - Mercado de trabalho aquecido.
-    - Aumento de gastos do governo gera alerta fiscal.
-
-    **Setores Favorecidos:**
-    - Consumo cíclico
-    - Construção civil
-    - Tecnologia nacional
-
-    **Setores com alerta:**
-    - Exportadoras (efeito câmbio e barreiras comerciais)
-    - Bancos (margens pressionadas)
-    - Energia (volatilidade global)
+# Função HRP para reconfigurar alocação
+def hrp_allocation(carteira, correl_matrix):
     """
-    setores_favoraveis = ["consumo", "construção", "tecnologia"]
-    setores_alerta = ["exportação", "bancos", "energia"]
-    return resumo, setores_favoraveis, setores_alerta
+    Função para aplicar o HRP na alocação de ativos.
+    """
+    # Step 1: Agrupamento Hierárquico
+    # Criar a árvore hierárquica com base na matriz de correlação
+    dist_matrix = np.sqrt(0.5 * (1 - correl_matrix))  # Calcular a distância de correlação
+    linkage = sch.linkage(dist_matrix, 'ward')
+    
+    # Step 2: Aplicar a Hierarchical Risk Parity (HRP)
+    clusters = sch.fcluster(linkage, t=1.15, criterion="distance")  # Define a critério de corte de clusters
+    
+    # Passo 3: Distribuição proporcional baseada no risco de cada cluster
+    cluster_weights = []
+    for cluster_id in np.unique(clusters):
+        cluster_stocks = [i for i, c in enumerate(clusters) if c == cluster_id]
+        cluster_weight = np.mean([carteira.iloc[i]["Peso (%)"] for i in cluster_stocks])  # Peso médio de cada grupo
+        cluster_weights.append(cluster_weight)
+    
+    # Normalizar os pesos
+    total_weight = sum(cluster_weights)
+    normalized_weights = [weight / total_weight for weight in cluster_weights]
+    
+    # Aplicar os novos pesos aos ativos
+    hrp_allocation = []
+    for i, row in carteira.iterrows():
+        cluster_id = clusters[i]
+        cluster_weight = normalized_weights[cluster_id - 1]
+        hrp_allocation.append({
+            "Ticker": row["Ticker"],
+            "Peso Atual (%)": row["Peso (%)"],
+            "Peso Sugerido (%)": round(cluster_weight * 100, 2)
+        })
+    
+    return pd.DataFrame(hrp_allocation)
 
 # Upload da carteira
 st.header("📁 Sua Carteira Atual")
@@ -109,44 +126,14 @@ if not carteira.empty:
     for n in noticias:
         st.markdown(f"- {n}")
 
-    resumo, setores_bull, setores_bear = analisar_cenario()
-    st.markdown(resumo)
+    # Passo 1: Obter a matriz de correlação
+    tickers = carteira['Ticker'].tolist()
+    data = yf.download(tickers, period='1y', interval='1d')['Adj Close']
+    returns = data.pct_change().dropna()
+    correl_matrix = returns.corr()
 
-    st.header("📌 Sugestão de Alocação")
-    sugestoes = []
-
-    for i, row in carteira.iterrows():
-        ticker = row['Ticker']
-        peso = row['Peso (%)']
-        price, target, mean_target = get_target_price(ticker)
-        upside = round((target - price) / price * 100, 2) if price and target else None
-
-        recomendacao = "Manter"
-        peso_sugerido = peso
-        if upside is not None:
-            if upside > 15:
-                recomendacao = "Aumentar"
-                peso_sugerido = min(peso * 1.2, 20)  # Limita a no máximo 20%
-            elif upside < 0:
-                recomendacao = "Reduzir"
-                peso_sugerido = max(peso * 0.8, 0)
-
-        sugestoes.append({
-            "Ticker": ticker,
-            "Peso Atual (%)": peso,
-            "Preço Atual": round(price, 2) if price else None,
-            "Preço Alvo": round(target, 2) if target else None,
-            "Preço Alvo Médio": round(mean_target, 2) if mean_target else None,
-            "Upside (%)": upside,
-            "Recomendação": recomendacao,
-            "Peso Sugerido (%)": round(peso_sugerido, 2)
-        })
-
-    df_sugestoes = pd.DataFrame(sugestoes)
-    total = df_sugestoes['Peso Sugerido (%)'].sum()
-    if total > 0:
-        df_sugestoes['Peso Sugerido (%)'] = round(df_sugestoes['Peso Sugerido (%)'] / total * 100, 2)
-
-    st.dataframe(df_sugestoes)
+    st.header("📌 Sugestão de Alocação com HRP")
+    df_hrp_allocation = hrp_allocation(carteira, correl_matrix)
+    st.dataframe(df_hrp_allocation)
 else:
     st.info("Por favor, envie sua carteira ou insira ativos manualmente para continuar.")
