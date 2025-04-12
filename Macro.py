@@ -38,6 +38,25 @@ def get_macro_data_sgs(codigo_serie, data_inicio):
         print(f"Erro ao buscar série {codigo_serie}: {e}")
         return pd.DataFrame()
 
+# Exibir dados macroeconômicos
+st.subheader("📈 Indicadores Macroeconômicos Recentes")
+hoje = datetime.datetime.today()
+data_inicio_macro = (hoje - datetime.timedelta(days=365*5)).strftime("%d/%m/%Y")
+
+indicadores = {
+    "Inflação (IPCA) [% a.m.]": 433,
+    "Taxa Selic [% a.a.]": 4189,
+    "Câmbio (R$/US$)": 1,
+    "PIB (variação % a.a.)": 7326
+}
+
+for nome, codigo in indicadores.items():
+    df_macro = get_macro_data_sgs(codigo, data_inicio_macro)
+    if not df_macro.empty:
+        ultimo_valor = df_macro.iloc[-1]['valor']
+        data_valor = df_macro.index[-1].strftime("%b/%Y")
+        st.metric(label=nome + f" (último dado: {data_valor})", value=f"{ultimo_valor:.2f}")
+
 # Análise de desempenho histórico durante anos semelhantes ao cenário atual
 def analise_historica_anos_similares(ticker, anos_semelhantes):
     try:
@@ -45,12 +64,8 @@ def analise_historica_anos_similares(ticker, anos_semelhantes):
         hoje = datetime.datetime.today().strftime('%Y-%m-%d')
         hist = stock.history(start="2017-01-01", end=hoje)["Close"]
         retornos = {}
-        if hist.empty:
-            return None
-        hist = hist.dropna()
-        anos = hist.index.to_series().dt.year
         for ano in anos_semelhantes:
-            dados_ano = hist[anos == ano]
+            dados_ano = hist[hist.index.year == ano]
             if not dados_ano.empty:
                 retorno = dados_ano.pct_change().sum() * 100
                 retornos[ano] = retorno
@@ -98,7 +113,7 @@ def analisar_cenario_com_noticias(noticias):
 # Função para gerar o resumo das empresas que se destacam com base no cenário macroeconômico
 def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear, anos_similares):
     empresas_destaque = []
-
+    
     for i, row in carteira.iterrows():
         ticker = row['Ticker']
         price, target = get_target_price_yfinance(ticker)
