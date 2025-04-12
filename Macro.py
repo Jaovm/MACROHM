@@ -1,8 +1,8 @@
-# coding: utf-8
 import streamlit as st
 import pandas as pd
 import yfinance as yf
 import numpy as np
+import requests
 
 st.set_page_config(page_title="Sugestão de Alocação Inteligente", layout="wide")
 st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
@@ -40,16 +40,20 @@ def analise_historica_anos_similares(ticker, anos_semelhantes):
         print(f"Erro ao calcular retorno histórico para {ticker}: {e}")
         return None
 
-# Notícias mais relevantes (mock com destaque atual)
-def noticias_relevantes():
-    return [
-        "Inflação permanece acima da meta e Banco Central mantém juros elevados.",
-        "Desemprego em queda estimula setores de consumo interno.",
-        "Gastos públicos em alta pressionam cenário fiscal brasileiro.",
-        "Estados Unidos implementam tarifas que elevam custos de importações.",
-    ]
+# Buscar notícias econômicas reais da API GNews
+def buscar_noticias_reais():
+    api_key = "f81e45d8e741c24dfe4971f5403f5a32"
+    url = f"https://gnews.io/api/v4/search?q=economia+brasil&lang=pt&country=br&token={api_key}&max=5"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        noticias = [artigo["title"] for artigo in data.get("articles", [])]
+        return noticias if noticias else ["Nenhuma notícia encontrada."]
+    except Exception as e:
+        print(f"Erro ao buscar notícias: {e}")
+        return ["Erro ao buscar notícias."]
 
-# Simulação de análise de notícias
+# Simulação de análise de cenário econômico (mantida)
 def analisar_cenario():
     resumo = """
     **Resumo Econômico Atual:**
@@ -111,7 +115,8 @@ if not carteira.empty:
     st.dataframe(carteira)
 
     st.header("🌐 Análise de Cenário Econômico")
-    for n in noticias_relevantes():
+    st.markdown("### 📰 Notícias Econômicas Recentes")
+    for n in buscar_noticias_reais():
         st.markdown(f"- {n}")
 
     resumo, setores_bull, setores_bear = analisar_cenario()
