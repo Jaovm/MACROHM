@@ -1,10 +1,7 @@
 import streamlit as st
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-import re
+import yfinance as yf
 
-# Configuração do Streamlit
 st.set_page_config(page_title="Sugestão de Alocação Inteligente", layout="wide")
 st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
 
@@ -14,24 +11,11 @@ Além disso, compara os preços atuais dos ativos com os **preços alvo dos anal
 """)
 
 # Função para obter preço atual e preço alvo do Yahoo Finance
-def get_target_price(ticker):
+def get_target_price_yfinance(ticker):
     try:
-        # Pegando o preço atual
-        summary_url = f"https://finance.yahoo.com/quote/{ticker}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(summary_url, headers=headers)
-        soup = BeautifulSoup(r.text, "html.parser")
-        
-        # Preço atual
-        price = soup.find("fin-streamer", {"data-symbol": ticker, "data-field": "regularMarketPrice"})
-        price = float(price.text.replace(",", "")) if price else None
-
-        # Preço alvo
-        analysis_url = f"https://finance.yahoo.com/quote/{ticker}/analysis?p={ticker}"
-        r2 = requests.get(analysis_url, headers=headers)
-        match = re.search(r'"targetMeanPrice":(\d+\.\d+)', r2.text)
-        target = float(match.group(1)) if match else None
-
+        stock = yf.Ticker(ticker)
+        price = stock.history(period="1d")['Close'][0]
+        target = stock.info['targetMeanPrice'] if 'targetMeanPrice' in stock.info else None
         return price, target
     except Exception as e:
         print(f"Erro ao buscar dados de {ticker}: {e}")
@@ -73,7 +57,6 @@ def analisar_cenario():
 st.header("📁 Sua Carteira Atual")
 arquivo = st.file_uploader("Envie um arquivo CSV com colunas: Ticker, Peso (%)", type=["csv"])
 
-# Carteira manual
 carteira_manual = [
     {"Ticker": "AGRO3.SA", "Peso (%)": 10},
     {"Ticker": "BBAS3.SA", "Peso (%)": 1.2},
@@ -92,7 +75,7 @@ carteira_manual = [
     {"Ticker": "TAEE3.SA", "Peso (%)": 3},
 ]
 
-# Função para adicionar ativos manualmente
+st.markdown("### Ou adicione ativos manualmente:")
 ticker_input = st.text_input("Ticker do ativo")
 peso_input = st.number_input("Peso (%)", min_value=0.0, max_value=100.0, step=0.1)
 
@@ -122,18 +105,11 @@ if not carteira.empty:
     for i, row in carteira.iterrows():
         ticker = row['Ticker']
         peso = row['Peso (%)']
-        price, target = get_target_price(ticker)
-
-        if price and target:
-            # Calcular o upside como a diferença percentual entre o preço alvo e o preço atual
-            upside = round((target - price) / price * 100, 2)
-        else:
-            upside = None
+        price, target = get_target_price_yfinance(ticker)
+        upside = round((target - price) / price * 100, 2) if price and target else None
 
         recomendacao = "Manter"
         peso_sugerido = peso
-        
-        # Definir recomendações com base no upside
         if upside is not None:
             if upside > 15:
                 recomendacao = "Aumentar"
@@ -152,7 +128,6 @@ if not carteira.empty:
             "Peso Sugerido (%)": round(peso_sugerido, 2)
         })
 
-    # Exibir as sugestões de alocação
     df_sugestoes = pd.DataFrame(sugestoes)
     total = df_sugestoes['Peso Sugerido (%)'].sum()
     if total > 0:
