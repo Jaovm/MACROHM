@@ -25,13 +25,13 @@ def get_target_price_yfinance(ticker):
         return None, None
 
 # Análise de desempenho histórico durante anos semelhantes ao cenário atual
-def analise_historica_anos_similares(ticker, anos_semelhantes):
+def analise_historica_anos_similares(ticker, anos_simelhantes):
     try:
         stock = yf.Ticker(ticker)
         hoje = datetime.datetime.today().strftime('%Y-%m-%d')
         hist = stock.history(start="2017-01-01", end=hoje)["Close"]
         retornos = {}
-        for ano in anos_semelhantes:
+        for ano in anos_simelhantes:
             dados_ano = hist[hist.index.year == ano]
             if not dados_ano.empty:
                 retorno = dados_ano.pct_change().sum() * 100
@@ -57,29 +57,26 @@ def noticias_reais(api_key):
 # Simulação de análise de cenário com base em notícias reais
 def analisar_cenario_com_noticias(noticias):
     setores_favoraveis = []
-    setores_alerta = []
     resumo = ""
 
     for noticia in noticias:
         lower = noticia.lower()
         if "inflação" in lower or "juros altos" in lower:
-            setores_alerta.extend(["bancos", "imobiliário"])
+            setores_favoraveis.extend(["bancos", "imobiliário"])
         if "desemprego em queda" in lower or "consumo" in lower:
             setores_favoraveis.append("consumo")
         if "gastos públicos" in lower or "governo" in lower:
             setores_favoraveis.append("construção")
         if "importação" in lower or "tarifa" in lower:
-            setores_alerta.append("exportação")
+            setores_favoraveis.append("exportação")
 
-    resumo += "\n".join([f"- {n}" for n in noticias])
     setores_favoraveis = list(set(setores_favoraveis))
-    setores_alerta = list(set(setores_alerta))
 
-    return resumo, setores_favoraveis, setores_alerta
+    return resumo, setores_favoraveis
 
 # Função para gerar o resumo das empresas que se destacam com base nas notícias econômicas
-def gerar_resumo_empresas_destaque(carteira, setores_bull, setores_bear):
-    empresas_destaque = []
+def gerar_resumo_empresas_favorecidas(carteira, setores_favoraveis):
+    empresas_favorecidas = []
 
     for i, row in carteira.iterrows():
         ticker = row['Ticker']
@@ -88,25 +85,21 @@ def gerar_resumo_empresas_destaque(carteira, setores_bull, setores_bear):
 
         motivo = ""
 
-        # Verificar se a empresa está em um setor favorável
-        if any(setor in ticker.lower() for setor in setores_bull):
-            motivo += f"Setor favorável devido às notícias econômicas atuais (ex.: {', '.join(setores_bull)}). "
-
-        # Verificar se a empresa está em um setor com alerta
-        if any(setor in ticker.lower() for setor in setores_bear):
-            motivo += f"Setor em alerta devido às notícias econômicas atuais (ex.: {', '.join(setores_bear)}). "
+        # Verificar se a empresa está em um setor favorecido
+        if any(setor in ticker.lower() for setor in setores_favoraveis):
+            motivo += f"Setor favorecido devido às notícias econômicas atuais (ex.: {', '.join(setores_favoraveis)}). "
 
         # Se a empresa tem um desempenho histórico relevante
         if retorno_medio is not None and retorno_medio > 15:
             motivo += f"Desempenho superior ao médio histórico nos anos {', '.join(map(str, anos_similares))}."
 
         if motivo:
-            empresas_destaque.append({
+            empresas_favorecidas.append({
                 "Ticker": ticker,
                 "Motivo": motivo
             })
 
-    return empresas_destaque
+    return empresas_favorecidas
 
 # Upload da carteira
 st.header("📁 Sua Carteira Atual")
@@ -154,18 +147,17 @@ if not carteira.empty:
 
     api_key = st.secrets["GNEWS_API_KEY"] if "GNEWS_API_KEY" in st.secrets else "f81e45d8e741c24dfe4971f5403f5a32"
     noticias = noticias_reais(api_key)
-    resumo, setores_bull, setores_bear = analisar_cenario_com_noticias(noticias)
+    resumo, setores_favoraveis = analisar_cenario_com_noticias(noticias)
 
     st.markdown("**Notícias Recentes:**")
     st.markdown(resumo)
 
-    st.markdown("**Setores Favorecidos:** " + ", ".join(setores_bull))
-    st.markdown("**Setores com Alerta:** " + ", ".join(setores_bear))
+    st.markdown("**Setores Favorecidos:** " + ", ".join(setores_favoraveis))
 
-    st.header("📌 Empresas que se Destacam no Cenário Atual com Base nas Notícias Econômicas")
+    st.header("📌 Empresas que se Beneficiarão no Cenário Atual")
     
-    # Gerar o resumo das empresas que se destacam com base no cenário macroeconômico
-    empresas_destaque = gerar_resumo_empresas_destaque(carteira, setores_bull, setores_bear)
+    # Gerar o resumo das empresas que se beneficiarão com base no cenário macroeconômico
+    empresas_favorecidas = gerar_resumo_empresas_favorecidas(carteira, setores_favoraveis)
     
-    for empresa in empresas_destaque:
+    for empresa in empresas_favorecidas:
         st.markdown(f"- **{empresa['Ticker']}**: {empresa['Motivo']}")
