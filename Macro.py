@@ -4,6 +4,8 @@ import yfinance as yf
 import numpy as np
 import requests
 import datetime
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics.pairwise import cosine_similarity
 
 st.set_page_config(page_title="Sugestão de Alocação Inteligente", layout="wide")
 st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
@@ -47,9 +49,7 @@ def noticias_reais(api_key):
     url = f"https://gnews.io/api/v4/search?q=economia+brasil&lang=pt&country=br&max=5&token={api_key}"
     try:
         response = requests.get(url)
-        print(f"Resposta da API: {response.status_code}")
         data = response.json()
-        print(f"Dados da API: {data}")  # Verificando o conteúdo da resposta
         noticias = [article["title"] for article in data.get("articles", [])]
         return noticias
     except Exception as e:
@@ -79,54 +79,61 @@ def analisar_cenario_com_noticias(noticias):
 
     return resumo, setores_favoraveis, setores_alerta
 
+# Função para identificar anos semelhantes com base em dados econômicos
+@st.cache_data
+
+def obter_anos_similares():
+    url = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados?formato=json"
+    url_selic = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.4189/dados?formato=json"
+
+    def carregar_serie(url):
+        r = requests.get(url)
+        df = pd.DataFrame(r.json())
+        df['data'] = pd.to_datetime(df['data'], dayfirst=True)
+        df['ano'] = df['data'].dt.year
+        df['valor'] = pd.to_numeric(df['valor'].str.replace(',', '.'), errors='coerce')
+        return df.groupby('ano')['valor'].mean().dropna()
+
+    ipca = carregar_serie(url)
+    selic = carregar_serie(url_selic)
+    df = pd.DataFrame({'ipca': ipca, 'selic': selic}).dropna()
+
+    dados_atuais = df.iloc[-1].values.reshape(1, -1)
+    historico = df.iloc[:-1]
+
+    scaler = StandardScaler()
+    dados_normalizados = scaler.fit_transform(df)
+    atual_normalizado = dados_normalizados[-1].reshape(1, -1)
+    historico_normalizado = dados_normalizados[:-1]
+
+    similaridades = cosine_similarity(atual_normalizado, historico_normalizado)[0]
+    anos_ordenados = historico.index[np.argsort(similaridades)[-2:][::-1]].tolist()
+    return anos_ordenados
+
 # Função para gerar o resumo das empresas que se destacam com base no cenário macroeconômico
-def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear):
+def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear, anos_similares):
     empresas_destaque = []
-    
     for i, row in carteira.iterrows():
         ticker = row['Ticker']
         price, target = get_target_price_yfinance(ticker)
         retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
 
-        # Verificar em qual setor a empresa se encaixa e gerar o resumo baseado nas notícias
-        if "consumo" in setores_bull and "consumo" in ticker.lower():
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Setor de consumo favorecido pelas notícias econômicas atuais. Desempenho histórico positivo."
-            })
-
-        elif "construção" in setores_bull and "construção" in ticker.lower():
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Setor de construção favorecido pelas notícias econômicas atuais. Desempenho histórico positivo."
-            })
-
-        if retorno_medio is not None and retorno_medio > 15:
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Desempenho superior ao médio histórico nos anos {', '.join(map(str, anos_similares))}."
-            })
-
-        # Se o setor estiver em alerta e o desempenho histórico for negativo, adicionar ao alerta
-        if "exportação" in setores_bear and "exportação" in ticker.lower():
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Setor de exportação em alerta devido a notícias econômicas. Desempenho histórico fraco."
-            })
-
+        motivo = []
+        if any(setor in ticker.lower() for setor in setores_bull):
+            motivo.append("Setor favorecido pelas notícias econômicas.")
+        if retorno_medio and retorno_medio > 15:
+            motivo.append(f"Desempenho histórico positivo nos anos {', '.join(map(str, anos_similares))}.")
         if price and target:
             upside = round((target - price) / price * 100, 2)
-            if upside and upside > 15:
-                empresas_destaque.append({
-                    "Ticker": ticker,
-                    "Retorno Médio em Anos Similares (%)": retorno_medio if retorno_medio else "Não disponível",
-                    "Motivo": "Preço alvo sugere um alto potencial de valorização."
-                })
+            if upside > 15:
+                motivo.append("Preço alvo sugere alto potencial de valorização.")
 
+        if motivo:
+            empresas_destaque.append({
+                "Ticker": ticker,
+                "Motivo": " ".join(motivo),
+                "Retorno Médio em Anos Similares (%)": round(retorno_medio, 2) if retorno_medio else "N/A"
+            })
     return empresas_destaque
 
 # Upload da carteira
@@ -169,68 +176,59 @@ if not carteira.empty:
 
     st.header("🌐 Análise de Cenário Econômico")
 
-    anos_similares = [2019, 2022]  # Exemplo de anos semelhantes (ajustar conforme necessário)
-    st.markdown(f"**Anos Semelhantes ao Cenário Atual (Baseado em Inflação e Juros):** {', '.join(map(str, anos_similares))}")
+    anos_similares = obter_anos_similares()
+    st.markdown(f"**Anos Semelhantes ao Cenário Atual (Baseado em Dados Econômicos):** {', '.join(map(str, anos_similares))}")
 
     api_key = st.secrets["GNEWS_API_KEY"] if "GNEWS_API_KEY" in st.secrets else "f81e45d8e741c24dfe4971f5403f5a32"
     noticias = noticias_reais(api_key)
-    if noticias:
-        resumo, setores_bull, setores_bear = analisar_cenario_com_noticias(noticias)
+    resumo, setores_bull, setores_bear = analisar_cenario_com_noticias(noticias)
 
-        st.markdown("**Notícias Recentes:**")
-        st.markdown(resumo)
+    st.markdown("**Notícias Recentes:**")
+    st.markdown(resumo)
 
-        st.markdown("**Setores Favorecidos:** " + ", ".join(setores_bull))
-        st.markdown("**Setores com Alerta:** " + ", ".join(setores_bear))
+    st.markdown("**Setores Favorecidos:** " + (", ".join(setores_bull) if setores_bull else "Nenhum setor identificado."))
+    st.markdown("**Setores com Alerta:** " + (", ".join(setores_bear) if setores_bear else "Nenhum setor identificado."))
 
-        st.header("📌 Sugestão de Alocação")
-        sugestoes = []
-        empresas_destaque_historico = []
+    st.header("📌 Sugestão de Alocação")
+    sugestoes = []
+    peso_total = 0
+    for i, row in carteira.iterrows():
+        ticker = row['Ticker']
+        peso = row['Peso (%)']
+        price, target = get_target_price_yfinance(ticker)
+        upside = round((target - price) / price * 100, 2) if price and target else None
 
-        # Cálculo do peso total
-        peso_total = 0
-        for i, row in carteira.iterrows():
-            ticker = row['Ticker']
-            peso = row['Peso (%)']
-            price, target = get_target_price_yfinance(ticker)
-            upside = round((target - price) / price * 100, 2) if price and target else None
+        recomendacao = "Manter"
+        peso_sugerido = peso
+        if upside is not None:
+            if upside > 15:
+                recomendacao = "Aumentar"
+                peso_sugerido = min(peso * 1.2, 20)
+            elif upside < 0:
+                recomendacao = "Reduzir"
+                peso_sugerido = max(peso * 0.8, 0)
 
-            recomendacao = "Manter"
-            peso_sugerido = peso
-            if upside is not None:
-                if upside > 15:
-                    recomendacao = "Aumentar"
-                    peso_sugerido = min(peso * 1.2, 20)
-                elif upside < 0:
-                    recomendacao = "Reduzir"
-                    peso_sugerido = max(peso * 0.8, 0)
+        peso_total += peso_sugerido
+        sugestoes.append({
+            "Ticker": ticker,
+            "Peso Atual (%)": peso,
+            "Preço Atual": price,
+            "Preço Alvo": target,
+            "Upside (%)": upside,
+            "Recomendação": recomendacao,
+            "Peso Sugerido (%)": round(peso_sugerido, 2)
+        })
 
-            peso_total += peso_sugerido
-            sugestoes.append({
-                "Ticker": ticker,
-                "Peso Atual (%)": peso,
-                "Preço Atual": price,
-                "Preço Alvo": target,
-                "Upside (%)": upside,
-                "Recomendação": recomendacao,
-                "Peso Sugerido (%)": round(peso_sugerido, 2)
-            })
+    if peso_total > 0:
+        fator_normalizacao = 100 / peso_total
+        for sugestao in sugestoes:
+            sugestao["Peso Sugerido (%)"] = round(sugestao["Peso Sugerido (%)"] * fator_normalizacao, 2)
 
-        # Normalizar os pesos sugeridos para que o total seja 100%
-        if peso_total > 0:
-            fator_normalizacao = 100 / peso_total
-            for sugestao in sugestoes:
-                sugestao["Peso Sugerido (%)"] = round(sugestao["Peso Sugerido (%)"] * fator_normalizacao, 2)
+    df_sugestoes = pd.DataFrame(sugestoes)
+    st.write("**Total Peso Sugerido:** 100%")
+    st.dataframe(df_sugestoes)
 
-        df_sugestoes = pd.DataFrame(sugestoes)
-
-        st.write(f"**Total Peso Sugerido:** 100%")
-        st.dataframe(df_sugestoes)
-
-        # Gerar e exibir o resumo das empresas que se destacam com base no cenário macroeconômico
-        empresas_destaque = gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear)
-        st.markdown("### Empresas que se Destacam no Cenário Atual com Base nas Notícias Econômicas:")
-        for empresa in empresas_destaque:
-            st.markdown(f"- **{empresa['Ticker']}**: {empresa['Motivo']}")
-    else:
-        st.markdown("Não foi possível obter notícias econômicas no momento.")
+    empresas_destaque = gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear, anos_similares)
+    st.markdown("### Empresas que se Destacam no Cenário Atual com Base nas Notícias Econômicas:")
+    for empresa in empresas_destaque:
+        st.markdown(f"- **{empresa['Ticker']}**: {empresa['Motivo']} (Retorno médio: {empresa['Retorno Médio em Anos Similares (%)']}%)")
