@@ -104,13 +104,17 @@ def sugerir_ativos_por_cenario():
     }
 
     cenario = st.sidebar.selectbox("Selecione um cenário macroeconômico", [""] + list(cenarios.keys()), key="cenario_macroeconomico_unique")
+    
     if cenario:
         st.sidebar.info(f"Setores/ativos que tendem a se beneficiar: {', '.join(cenarios[cenario])}")
+        
         ativos_sugeridos = cenarios[cenario]
+        
         ativos_selecionados = st.sidebar.multiselect(
             "Selecione os ativos relacionados aos cenários:",
             ativos_sugeridos, key="ativos_sugeridos_unique"
         )
+        
         if ativos_selecionados:
             st.sidebar.write("Ativos selecionados:", ativos_selecionados)
             return ativos_selecionados
