@@ -25,13 +25,13 @@ def get_target_price_yfinance(ticker):
         return None, None
 
 # Análise de desempenho histórico durante anos semelhantes ao cenário atual
-def analise_historica_anos_similares(ticker, anos_semelhantes):
+def analise_historica_anos_similares(ticker, anos_similares):
     try:
         stock = yf.Ticker(ticker)
         hoje = datetime.datetime.today().strftime('%Y-%m-%d')
         hist = stock.history(start="2017-01-01", end=hoje)["Close"]
         retornos = {}
-        for ano in anos_semelhantes:
+        for ano in anos_similares:
             dados_ano = hist[hist.index.year == ano]
             if not dados_ano.empty:
                 retorno = dados_ano.pct_change().sum() * 100
@@ -78,7 +78,7 @@ def analisar_cenario_com_noticias(noticias):
     for noticia in noticias:
         lower = noticia.lower()
         resumo += f"\n- {noticia}"
-        
+
         # Verificando palavras-chave favoráveis
         for palavra, setores in palavras_chave_favoraveis.items():
             if palavra in lower:
@@ -92,6 +92,10 @@ def analisar_cenario_com_noticias(noticias):
     setores_favoraveis = list(set(setores_favoraveis))
     setores_alerta = list(set(setores_alerta))
 
+    # Depuração para ver os setores identificados
+    print(f"Setores Favorecidos: {setores_favoraveis}")
+    print(f"Setores com Alerta: {setores_alerta}")
+    
     return resumo, setores_favoraveis, setores_alerta
 
 # Função para gerar o resumo das empresas que se destacam com base no cenário macroeconômico
