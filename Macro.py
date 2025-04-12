@@ -16,15 +16,13 @@ Além disso, compara os preços atuais dos ativos com os **preços alvo dos anal
 # Função para obter preço atual e preço alvo do Yahoo Finance
 def get_target_price(ticker):
     try:
-        summary_url = f"https://finance.yahoo.com/quote/{ticker}"  # Para pegar preço atual
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(summary_url, headers=headers)
-        soup = BeautifulSoup(r.text, "html.parser")
+        # Preço atual com yfinance
+        data = yf.Ticker(ticker)
+        price = data.info.get("regularMarketPrice")
 
-        price = soup.find("fin-streamer", {"data-symbol": ticker, "data-field": "regularMarketPrice"})
-        price = float(price.text.replace(",", "")) if price else None
-
+        # Preço alvo com scraping
         analysis_url = f"https://finance.yahoo.com/quote/{ticker}/analysis?p={ticker}"
+        headers = {"User-Agent": "Mozilla/5.0"}
         r2 = requests.get(analysis_url, headers=headers)
         match = re.search(r'"targetMeanPrice":(\d+\.\d+)', r2.text)
         target = float(match.group(1)) if match else None
@@ -125,7 +123,7 @@ if not carteira.empty:
         if upside is not None:
             if upside > 15:
                 recomendacao = "Aumentar"
-                peso_sugerido = min(peso * 1.2, 20)  # Limita a no máximo 20%
+                peso_sugerido = min(peso * 1.2, 20)
             elif upside < 0:
                 recomendacao = "Reduzir"
                 peso_sugerido = max(peso * 0.8, 0)
@@ -133,8 +131,8 @@ if not carteira.empty:
         sugestoes.append({
             "Ticker": ticker,
             "Peso Atual (%)": peso,
-            "Preço Atual": price,
-            "Preço Alvo": target,
+            "Preço Atual": round(price, 2) if price else None,
+            "Preço Alvo": round(target, 2) if target else None,
             "Upside (%)": upside,
             "Recomendação": recomendacao,
             "Peso Sugerido (%)": round(peso_sugerido, 2)
