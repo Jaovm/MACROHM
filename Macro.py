@@ -76,7 +76,15 @@ def analisar_cenario():
 st.header("📁 Sua Carteira Atual")
 arquivo = st.file_uploader("Envie um arquivo CSV com colunas: Ticker, Peso (%)", type=["csv"])
 
-carteira_manual = []
+carteira_manual = [
+    {"Ticker": "ITUB4.SA", "Peso (%)": 25},
+    {"Ticker": "WEGE3.SA", "Peso (%)": 20},
+    {"Ticker": "PETR4.SA", "Peso (%)": 15},
+    {"Ticker": "VALE3.SA", "Peso (%)": 15},
+    {"Ticker": "B3SA3.SA", "Peso (%)": 10},
+    {"Ticker": "RENT3.SA", "Peso (%)": 15},
+]
+
 st.markdown("### Ou adicione ativos manualmente:")
 ticker_input = st.text_input("Ticker do ativo")
 peso_input = st.number_input("Peso (%)", min_value=0.0, max_value=100.0, step=0.1)
