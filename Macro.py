@@ -157,3 +157,57 @@ def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull,
                 })
 
     return empresas_destaque
+
+# Função para recomendar ativos da carteira com base no cenário
+def recomendar_ativos_carteira(carteira, setores_bull, anos_similares):
+    recomendacoes = []
+
+    for i, row in carteira.iterrows():
+        ticker = row['Ticker']
+        price, target = get_target_price_yfinance(ticker)
+        retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
+
+        if retorno_medio is not None and retorno_medio > 15:
+            recomendacoes.append({
+                "Ticker": ticker,
+                "Retorno Médio em Anos Similares (%)": retorno_medio,
+                "Motivo": f"Desempenho superior ao médio histórico nos anos {', '.join(map(str, anos_similares))}."
+            })
+
+        if price and target:
+            upside = round((target - price) / price * 100, 2)
+            if upside and upside > 10:
+                recomendacoes.append({
+                    "Ticker": ticker,
+                    "Retorno Médio em Anos Similares (%)": retorno_medio if retorno_medio else "Não disponível",
+                    "Motivo": f"Preço alvo sugere um alto potencial de valorização (upside de {upside}%)."
+                })
+
+    return recomendacoes
+
+# Função principal para o fluxo do app
+def main():
+    # Obter a chave da API para o GNews
+    api_key = st.text_input("Informe a chave da API do GNews", type="password")
+    
+    if api_key:
+        noticias = noticias_reais(api_key)
+
+        # Análise de notícias e setores
+        resumo, setores_favoraveis, setores_alerta = analisar_cenario_com_noticias(noticias)
+
+        # Exibir notícias e setores destacados
+        st.subheader("📰 Resumo das últimas notícias e setores favorecidos")
+        st.write(resumo)
+
+        st.subheader("🔍 Setores Favorecidos pelo Cenário Atual")
+        st.write(", ".join(setores_favoraveis))
+
+        # Recomendação de Ativos da Carteira
+        recomendacoes_carteira = recomendar_ativos_carteira(carteira, setores_favoraveis, anos_similares=[2019, 2023])
+
+        if recomendacoes_carteira:
+            st.subheader("💡 Ativos da sua Carteira com Potencial de Valorização")
+            st.dataframe(pd.DataFrame(recomendacoes_carteira))
+        else:
+            st.info("Nenhum ativo da sua carteira se destaca como recomendação forte no cenário atual.")
