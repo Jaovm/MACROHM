@@ -3,6 +3,7 @@ import pandas as pd
 import yfinance as yf
 import requests
 from bs4 import BeautifulSoup
+import re
 
 st.set_page_config(page_title="Sugestão de Alocação Inteligente", layout="wide")
 st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
@@ -12,31 +13,23 @@ Este app analisa **notícias econômicas atuais** e sua **carteira** para sugeri
 Além disso, compara os preços atuais dos ativos com os **preços alvo dos analistas**.
 """)
 
-# Função para obter preço alvo do Yahoo Finance
+# Função para obter preço atual e preço alvo do Yahoo Finance
 def get_target_price(ticker):
     try:
-        url = f"https://finance.yahoo.com/quote/{ticker}/analysis?p={ticker}"
+        summary_url = f"https://finance.yahoo.com/quote/{ticker}"  # Para pegar preço atual
         headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers)
+        r = requests.get(summary_url, headers=headers)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        summary_url = f"https://finance.yahoo.com/quote/{ticker}"  # Para pegar preço atual
-        r2 = requests.get(summary_url, headers=headers)
-        soup2 = BeautifulSoup(r2.text, "html.parser")
-
-        price = soup2.find("fin-streamer", {"data-symbol": ticker, "data-field": "regularMarketPrice"})
+        price = soup.find("fin-streamer", {"data-symbol": ticker, "data-field": "regularMarketPrice"})
         price = float(price.text.replace(",", "")) if price else None
 
-        # Target price médio (Price Target Mean)
-        section = soup.find("section", {"data-test": "qsp-analyst"})
-        if section:
-            texts = section.get_text()
-            start = texts.find("Average")
-            if start != -1:
-                value = texts[start:].split("\n")[1]
-                target = float(value.replace("$", "").replace(",", ""))
-                return price, target
-        return price, None
+        analysis_url = f"https://finance.yahoo.com/quote/{ticker}/analysis?p={ticker}"
+        r2 = requests.get(analysis_url, headers=headers)
+        match = re.search(r'"targetMeanPrice":(\d+\.\d+)', r2.text)
+        target = float(match.group(1)) if match else None
+
+        return price, target
     except:
         return None, None
 
@@ -128,17 +121,14 @@ if not carteira.empty:
         upside = round((target - price) / price * 100, 2) if price and target else None
 
         recomendacao = "Manter"
-        if upside and upside > 15:
-            recomendacao = "Aumentar"
-        elif upside and upside < 0:
-            recomendacao = "Reduzir"
-
-        if any(s in ticker.lower() for s in setores_bull):
-            if recomendacao == "Manter":
+        peso_sugerido = peso
+        if upside is not None:
+            if upside > 15:
                 recomendacao = "Aumentar"
-        elif any(s in ticker.lower() for s in setores_bear):
-            if recomendacao == "Manter":
+                peso_sugerido = min(peso * 1.2, 20)  # Limita a no máximo 20%
+            elif upside < 0:
                 recomendacao = "Reduzir"
+                peso_sugerido = max(peso * 0.8, 0)
 
         sugestoes.append({
             "Ticker": ticker,
@@ -146,10 +136,15 @@ if not carteira.empty:
             "Preço Atual": price,
             "Preço Alvo": target,
             "Upside (%)": upside,
-            "Recomendação": recomendacao
+            "Recomendação": recomendacao,
+            "Peso Sugerido (%)": round(peso_sugerido, 2)
         })
 
     df_sugestoes = pd.DataFrame(sugestoes)
+    total = df_sugestoes['Peso Sugerido (%)'].sum()
+    if total > 0:
+        df_sugestoes['Peso Sugerido (%)'] = round(df_sugestoes['Peso Sugerido (%)'] / total * 100, 2)
+
     st.dataframe(df_sugestoes)
 else:
     st.info("Por favor, envie sua carteira ou insira ativos manualmente para continuar.")
