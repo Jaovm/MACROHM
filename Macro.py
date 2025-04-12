@@ -12,6 +12,25 @@ st.set_page_config(layout="wide")
 start_date = '2017-01-01'
 end_date = pd.Timestamp.today().strftime('%Y-%m-%d')
 
+# Dicionário que mapeia setores por ticker
+setor_por_ticker = {
+    'AGRO3.SA': 'Commodities',
+    'BBAS3.SA': 'Bancos',
+    'BBSE3.SA': 'Seguradoras',
+    'BPAC11.SA': 'Bancos',
+    'EGIE3.SA': 'Setor de energia',
+    'ITUB3.SA': 'Bancos',
+    'PRIO3.SA': 'Petróleo',
+    'PSSA3.SA': 'Seguradoras',
+    'SAPR3.SA': 'Utilities',
+    'SBSP3.SA': 'Utilities',
+    'VIVT3.SA': 'Tecnologia',
+    'WEGE3.SA': 'Tecnologia',
+    'TOTS3.SA': 'Tecnologia',
+    'B3SA3.SA': 'Bancos',
+    'TAEE3.SA': 'Setor de energia'
+}
+
 if 'tickers_dict' not in st.session_state:
     st.session_state.tickers_dict = {
         'AGRO3.SA': 0.10, 'BBAS3.SA': 0.012, 'BBSE3.SA': 0.065, 'BPAC11.SA': 0.106,
@@ -50,7 +69,7 @@ def calcular_retorno_cov(dados):
     cov_matrix = LedoitWolf().fit(retornos).covariance_ * 252
     return retorno_medio, cov_matrix
 
-def simular_carteiras(retorno_medio, cov_matrix, num_portfolios=200000, rf=0.0):
+def simular_carteiras(retorno_medio, cov_matrix, num_portfolios=700000, rf=0.0):
     n = len(retorno_medio)
     resultados = []
     pesos_lista = []
@@ -102,12 +121,21 @@ def sugerir_ativos_por_cenario():
         "Recessão": ["Utilities", "Alimentos", "Saúde"],
         "Dólar em Alta": ["Exportadoras", "Mineração", "Petróleo"]
     }
-    cenarios_selecionados = st.sidebar.multiselect("Selecione cenários macroeconômicos relevantes:", options=list(cenarios.keys()))
+
+    cenarios_selecionados = st.sidebar.multiselect(
+        "Selecione cenários macroeconômicos",
+        options=list(cenarios.keys()),
+        default=[]
+    )
+
+    setores_favoraveis = set()
     if cenarios_selecionados:
-        ativos = set()
         for c in cenarios_selecionados:
-            ativos.update(cenarios[c])
-        st.sidebar.info("Setores/ativos que tendem a se beneficiar: " + ", ".join(ativos))
+            setores_favoraveis.update(cenarios[c])
+        st.sidebar.markdown("**Setores favorecidos:**")
+        st.sidebar.info(", ".join(setores_favoraveis))
+
+    return setores_favoraveis
 
 def exibir_resultados(dados, pesos_informados):
     retorno_medio, cov_matrix = calcular_retorno_cov(dados)
@@ -146,11 +174,25 @@ def exibir_resultados(dados, pesos_informados):
     plotar_grafico(resultados)
 
 def rodar_analise(tickers_dict, start, end):
+    setores_favoraveis = sugerir_ativos_por_cenario()
     dados = baixar_dados(list(tickers_dict.keys()), start, end)
-    if not dados.empty:
-        exibir_resultados(dados, tickers_dict)
-    else:
-        st.error("Erro ao carregar os dados. Verifique os tickers ou a conexão.")
 
-sugerir_ativos_por_cenario()
+    if dados.empty:
+        st.error("Erro ao carregar os dados. Verifique os tickers ou a conexão.")
+        return
+
+    pesos_ajustados = {}
+    for ticker, peso in tickers_dict.items():
+        setor = setor_por_ticker.get(ticker)
+        if setor in setores_favoraveis:
+            peso *= 1.2
+        pesos_ajustados[ticker] = peso
+
+    soma_pesos = sum(pesos_ajustados.values())
+    if soma_pesos > 0:
+        for t in pesos_ajustados:
+            pesos_ajustados[t] /= soma_pesos
+
+    exibir_resultados(dados, pesos_ajustados)
+
 rodar_analise(st.session_state.tickers_dict, start_date, end_date)
