@@ -25,13 +25,13 @@ def get_target_price_yfinance(ticker):
         return None, None
 
 # Análise de desempenho histórico durante anos semelhantes ao cenário atual
-def analise_historica_anos_similares(ticker, anos_similares):
+def analise_historica_anos_similares(ticker, anos_semelhantes):
     try:
         stock = yf.Ticker(ticker)
         hoje = datetime.datetime.today().strftime('%Y-%m-%d')
         hist = stock.history(start="2017-01-01", end=hoje)["Close"]
         retornos = {}
-        for ano in anos_similares:
+        for ano in anos_semelhantes:
             dados_ano = hist[hist.index.year == ano]
             if not dados_ano.empty:
                 retorno = dados_ano.pct_change().sum() * 100
@@ -60,46 +60,25 @@ def analisar_cenario_com_noticias(noticias):
     setores_alerta = []
     resumo = ""
 
-    palavras_chave_favoraveis = {
-        "inflação": ["bancos", "imobiliário"],
-        "juros altos": ["bancos", "imobiliário"],
-        "desemprego em queda": ["consumo", "varejo", "automotivo"],
-        "crescimento do consumo": ["varejo", "automotivo"],
-        "gastos públicos": ["construção", "infraestrutura"],
-        "setor exportação": ["agro", "mineração", "energia"]
-    }
-    
-    palavras_chave_alerta = {
-        "crise política": ["bancos", "imobiliário"],
-        "recessão": ["consumo", "varejo", "automotivo"],
-        "aumento de impostos": ["consumo", "varejo"]
-    }
-
     for noticia in noticias:
         lower = noticia.lower()
-        resumo += f"\n- {noticia}"
+        if "inflação" in lower or "juros altos" in lower:
+            setores_alerta.extend(["bancos", "imobiliário"])
+        if "desemprego em queda" in lower or "consumo" in lower:
+            setores_favoraveis.append("consumo")
+        if "gastos públicos" in lower or "governo" in lower:
+            setores_favoraveis.append("construção")
+        if "importação" in lower or "tarifa" in lower:
+            setores_alerta.append("exportação")
 
-        # Verificando palavras-chave favoráveis
-        for palavra, setores in palavras_chave_favoraveis.items():
-            if palavra in lower:
-                setores_favoraveis.extend(setores)
-
-        # Verificando palavras-chave de alerta
-        for palavra, setores in palavras_chave_alerta.items():
-            if palavra in lower:
-                setores_alerta.extend(setores)
-
+    resumo += "\n".join([f"- {n}" for n in noticias])
     setores_favoraveis = list(set(setores_favoraveis))
     setores_alerta = list(set(setores_alerta))
 
-    # Depuração para ver os setores identificados
-    print(f"Setores Favorecidos: {setores_favoraveis}")
-    print(f"Setores com Alerta: {setores_alerta}")
-    
     return resumo, setores_favoraveis, setores_alerta
 
 # Função para gerar o resumo das empresas que se destacam com base no cenário macroeconômico
-def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear):
+def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear, anos_similares):
     empresas_destaque = []
     
     for i, row in carteira.iterrows():
@@ -107,7 +86,6 @@ def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull,
         price, target = get_target_price_yfinance(ticker)
         retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
 
-        # Verificar em qual setor a empresa se encaixa e gerar o resumo baseado nas notícias
         if "consumo" in setores_bull and "consumo" in ticker.lower():
             empresas_destaque.append({
                 "Ticker": ticker,
@@ -129,7 +107,6 @@ def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull,
                 "Motivo": f"Desempenho superior ao médio histórico nos anos {', '.join(map(str, anos_similares))}."
             })
 
-        # Se o setor estiver em alerta e o desempenho histórico for negativo, adicionar ao alerta
         if "exportação" in setores_bear and "exportação" in ticker.lower():
             empresas_destaque.append({
                 "Ticker": ticker,
@@ -148,7 +125,6 @@ def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull,
 
     return empresas_destaque
 
-# Upload da carteira
 st.header("📁 Sua Carteira Atual")
 arquivo = st.file_uploader("Envie um arquivo CSV com colunas: Ticker, Peso (%)", type=["csv"])
 
@@ -188,9 +164,31 @@ if not carteira.empty:
 
     st.header("🌐 Análise de Cenário Econômico")
 
-    # Obter anos semelhantes ao cenário atual com base em inflação e taxa de juros
-    anos_similares = [2019, 2022]  # Exemplo de anos semelhantes (ajustar conforme necessário)
-    st.markdown(f"**Anos Semelhantes ao Cenário Atual (Baseado em Inflação e Juros):** {', '.join(map(str, anos_similares))}")
+    # Ampla análise macro para determinar anos semelhantes
+    cenarios_economicos = {
+        2017: {"inflação": 3.4, "juros": 7.0, "PIB": 1.3, "câmbio": 3.2},
+        2018: {"inflação": 3.7, "juros": 6.5, "PIB": 1.8, "câmbio": 3.7},
+        2019: {"inflação": 4.3, "juros": 5.0, "PIB": 1.1, "câmbio": 4.0},
+        2020: {"inflação": 4.5, "juros": 2.0, "PIB": -4.1, "câmbio": 5.2},
+        2021: {"inflação": 10.1, "juros": 2.75, "PIB": 4.6, "câmbio": 5.4},
+        2022: {"inflação": 5.8, "juros": 13.75, "PIB": 3.0, "câmbio": 5.2},
+        2023: {"inflação": 4.6, "juros": 13.75, "PIB": 2.9, "câmbio": 4.9},
+    }
+
+    cenario_atual = {"inflação": 4.5, "juros": 10.75, "PIB": 2.2, "câmbio": 5.0}
+
+    def distancia_cenario(c1, c2):
+        return sum((c1[k] - c2[k]) ** 2 for k in c1)
+
+    distancias = {ano: distancia_cenario(dados, cenario_atual) for ano, dados in cenarios_economicos.items()}
+    anos_similares = sorted(distancias, key=distancias.get)[:3]
+
+    st.markdown("**Cenário Econômico Atual:**")
+    st.write(cenario_atual)
+
+    st.markdown("**Anos com Cenários Econômicos Semelhantes:**")
+    for ano in anos_similares:
+        st.markdown(f"- {ano}: {cenarios_economicos[ano]}")
 
     api_key = st.secrets["GNEWS_API_KEY"] if "GNEWS_API_KEY" in st.secrets else "f81e45d8e741c24dfe4971f5403f5a32"
     noticias = noticias_reais(api_key)
@@ -199,14 +197,11 @@ if not carteira.empty:
     st.markdown("**Notícias Recentes:**")
     st.markdown(resumo)
 
-    st.markdown("**Setores Favorecidos:** " + ", ".join(setores_bull))
-    st.markdown("**Setores com Alerta:** " + ", ".join(setores_bear))
+    st.markdown("**Setores Favorecidos:** " + (", ".join(setores_bull) if setores_bull else "Nenhum identificado."))
+    st.markdown("**Setores com Alerta:** " + (", ".join(setores_bear) if setores_bear else "Nenhum identificado."))
 
     st.header("📌 Sugestão de Alocação")
     sugestoes = []
-    empresas_destaque_historico = []
-
-    # Cálculo do peso total
     peso_total = 0
     for i, row in carteira.iterrows():
         ticker = row['Ticker']
@@ -235,7 +230,6 @@ if not carteira.empty:
             "Peso Sugerido (%)": round(peso_sugerido, 2)
         })
 
-    # Normalizar os pesos sugeridos para que o total seja 100%
     if peso_total > 0:
         fator_normalizacao = 100 / peso_total
         for sugestao in sugestoes:
@@ -243,11 +237,10 @@ if not carteira.empty:
 
     df_sugestoes = pd.DataFrame(sugestoes)
 
-    st.write(f"**Total Peso Sugerido:** 100%")
+    st.write("**Total Peso Sugerido:** 100%")
     st.dataframe(df_sugestoes)
 
-    # Gerar e exibir o resumo das empresas que se destacam com base no cenário macroeconômico
-    empresas_destaque = gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear)
+    empresas_destaque = gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear, anos_similares)
     st.markdown("### Empresas que se Destacam no Cenário Atual com Base nas Notícias Econômicas:")
     for empresa in empresas_destaque:
         st.markdown(f"- **{empresa['Ticker']}**: {empresa['Motivo']}")
