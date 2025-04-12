@@ -178,6 +178,19 @@ if not carteira.empty:
     st.markdown("**Setores Favorecidos:** " + ", ".join(setores_bull))
     st.markdown("**Setores com Alerta:** " + ", ".join(setores_bear))
 
+    # Resumo dos setores favorecidos e motivos
+    resumo_setores_favoraveis = (
+        "Setores favorecidos: Energia Renovável, Tecnologia, Construção e Exportação.\n"
+        "Motivos:\n"
+        "- **Energia Renovável**: Espera-se crescimento com as políticas de incentivo à sustentabilidade e redução de custos em energia limpa.\n"
+        "- **Tecnologia**: Expansão no setor com aumento de demanda por inovação e digitalização das economias.\n"
+        "- **Construção**: Impulsionada por projetos de infraestrutura e aumento de gastos públicos.\n"
+        "- **Exportação**: Beneficiada por uma política de comércio exterior favorável e forte demanda internacional."
+    )
+    
+    st.markdown("### Resumo dos Setores Favorecidos e Motivos:")
+    st.markdown(resumo_setores_favoraveis)
+
     st.header("📌 Sugestão de Alocação")
     
     df_sugestoes = ajustar_alocacao(carteira, setores_bull, setores_bear)
