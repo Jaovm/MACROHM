@@ -4,62 +4,19 @@ import yfinance as yf
 import numpy as np
 import requests
 import datetime
-import requests
+import json
 
-# Função para obter dados do Banco Central (Inflação e Taxa de Juros)
-def obter_dados_serie_bacen(serie_id, inicio, fim):
-    """
-    Função para acessar os dados do Banco Central usando a API SGS
-    :param serie_id: Código da série temporal
-    :param inicio: Ano de início da pesquisa (formato 'AAAA')
-    :param fim: Ano de término da pesquisa (formato 'AAAA')
-    :return: DataFrame com os dados históricos
-    """
-    url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{serie_id}/dados?formato=csv&dataInicial={inicio}&dataFinal={fim}"
+# Função para coletar dados econômicos do Banco Central
+def coletar_dados_banco_central():
+    url = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/painel"
     try:
         response = requests.get(url)
-        response.raise_for_status()  # Verificar erros na resposta
-        dados = response.text
-        dados_df = pd.read_csv(pd.compat.StringIO(dados), sep=";", encoding="latin1")
-        return dados_df
-    except requests.exceptions.RequestException as e:
-        print(f"Erro ao obter dados: {e}")
-        return None
-
-# Função para obter inflação (IPCA) e Selic
-def obter_dados_ambientais(ano_inicial, ano_final):
-    inflacao_df = obter_dados_serie_bacen(433, str(ano_inicial), str(ano_final))
-    selic_df = obter_dados_serie_bacen(1178, str(ano_inicial), str(ano_final))
-
-    return inflacao_df, selic_df
-
-# Função para calcular a proximidade entre anos (com base em inflação e taxa de juros)
-def calcular_proximidade_anos_similares(inflacao_df, selic_df, ano_atual):
-    # Obter inflação e Selic do ano atual (último ano disponível no DataFrame)
-    inflacao_atual = inflacao_df[inflacao_df['valor'].index[-1]]
-    selic_atual = selic_df[selic_df['valor'].index[-1]]
-
-    proximidade = []
-
-    # Calcular a proximidade entre o ano atual e os anos passados
-    for ano in range(inflacao_df['valor'].index[0], inflacao_df['valor'].index[-1] + 1):
-        inflacao_ano = inflacao_df[inflacao_df['valor'].index == ano]['valor'].values
-        selic_ano = selic_df[selic_df['valor'].index == ano]['valor'].values
-        
-        if len(inflacao_ano) == 0 or len(selic_ano) == 0:
-            continue
-        
-        # Diferença absoluta entre inflação e Selic
-        prox_inflacao = abs(inflacao_atual - inflacao_ano[0])
-        prox_selic = abs(selic_atual - selic_ano[0])
-
-        proximidade_ano = prox_inflacao + prox_selic
-        proximidade.append((ano, proximidade_ano))
-
-    # Ordenar por proximidade e selecionar os 3 anos mais semelhantes
-    anos_similares = sorted(proximidade, key=lambda x: x[1])
-
-    return [ano for ano, _ in anos_similares[:3]]
+        dados = response.json()
+        anos = list({data['data'][:4] for data in dados})  # Filtra os anos disponíveis
+        return anos
+    except Exception as e:
+        print(f"Erro ao coletar dados do Banco Central: {e}")
+        return []
 
 # Função para obter preço atual e preço alvo do Yahoo Finance
 def get_target_price_yfinance(ticker):
@@ -72,7 +29,7 @@ def get_target_price_yfinance(ticker):
         print(f"Erro ao buscar dados de {ticker}: {e}")
         return None, None
 
-# Análise de desempenho histórico durante anos semelhantes ao cenário atual
+# Função para analisar anos semelhantes
 def analise_historica_anos_similares(ticker, anos_simelhantes):
     try:
         stock = yf.Ticker(ticker)
@@ -90,7 +47,7 @@ def analise_historica_anos_similares(ticker, anos_simelhantes):
         print(f"Erro ao calcular retorno histórico para {ticker}: {e}")
         return None
 
-# Busca notícias reais usando GNews API
+# Função para buscar notícias econômicas atuais
 def noticias_reais(api_key):
     url = f"https://gnews.io/api/v4/search?q=economia+brasil&lang=pt&country=br&max=5&token={api_key}"
     try:
@@ -102,7 +59,7 @@ def noticias_reais(api_key):
         print(f"Erro ao buscar notícias: {e}")
         return []
 
-# Simulação de análise de cenário com base em notícias reais
+# Função para analisar o cenário atual com base nas notícias
 def analisar_cenario_com_noticias(noticias):
     setores_favoraveis = []
     setores_alerta = []
@@ -125,8 +82,51 @@ def analisar_cenario_com_noticias(noticias):
 
     return resumo, setores_favoraveis, setores_alerta
 
-# Função para gerar o resumo das empresas que se destacam com base no cenário macroeconômico
-def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull, setores_bear):
+# Função para ajustar a alocação de ativos
+def ajustar_alocacao(carteira, setores_bull, setores_bear):
+    sugestoes = []
+    empresas_destaque = []
+
+    # Cálculo do peso total
+    peso_total = 0
+    for i, row in carteira.iterrows():
+        ticker = row['Ticker']
+        peso = row['Peso (%)']
+        price, target = get_target_price_yfinance(ticker)
+        upside = round((target - price) / price * 100, 2) if price and target else None
+
+        recomendacao = "Manter"
+        peso_sugerido = peso
+        if upside is not None:
+            if upside > 15:
+                recomendacao = "Aumentar"
+                peso_sugerido = min(peso * 1.2, 20)
+            elif upside < 0:
+                recomendacao = "Reduzir"
+                peso_sugerido = max(peso * 0.8, 0)
+
+        peso_total += peso_sugerido
+        sugestoes.append({
+            "Ticker": ticker,
+            "Peso Atual (%)": peso,
+            "Preço Atual": price,
+            "Preço Alvo": target,
+            "Upside (%)": upside,
+            "Recomendação": recomendacao,
+            "Peso Sugerido (%)": round(peso_sugerido, 2)
+        })
+
+    # Normalizar os pesos sugeridos para que o total seja 100%
+    if peso_total > 0:
+        fator_normalizacao = 100 / peso_total
+        for sugestao in sugestoes:
+            sugestao["Peso Sugerido (%)"] = round(sugestao["Peso Sugerido (%)"] * fator_normalizacao, 2)
+
+    df_sugestoes = pd.DataFrame(sugestoes)
+    return df_sugestoes
+
+# Função para gerar um resumo das empresas em oportunidade
+def gerar_resumo_empresas_oportunidade(carteira, setores_bull, setores_bear):
     empresas_destaque = []
     
     for i, row in carteira.iterrows():
@@ -134,34 +134,16 @@ def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull,
         price, target = get_target_price_yfinance(ticker)
         retorno_medio = analise_historica_anos_similares(ticker, anos_similares)
 
-        # Verificar em qual setor a empresa se encaixa e gerar o resumo baseado nas notícias
         if "consumo" in setores_bull and "consumo" in ticker.lower():
             empresas_destaque.append({
                 "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
                 "Motivo": f"Setor de consumo favorecido pelas notícias econômicas atuais. Desempenho histórico positivo."
             })
 
-        elif "construção" in setores_bull and "construção" in ticker.lower():
+        if retorno_medio and retorno_medio > 15:
             empresas_destaque.append({
                 "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Setor de construção favorecido pelas notícias econômicas atuais. Desempenho histórico positivo."
-            })
-
-        if retorno_medio is not None and retorno_medio > 15:
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Desempenho superior ao médio histórico nos anos {', '.join(map(str, anos_similares))}."
-            })
-
-        # Se o setor estiver em alerta e o desempenho histórico for negativo, adicionar ao alerta
-        if "exportação" in setores_bear and "exportação" in ticker.lower():
-            empresas_destaque.append({
-                "Ticker": ticker,
-                "Retorno Médio em Anos Similares (%)": retorno_medio,
-                "Motivo": f"Setor de exportação em alerta devido a notícias econômicas. Desempenho histórico fraco."
+                "Motivo": f"Desempenho superior ao histórico médio nos anos {', '.join(map(str, anos_similares))}."
             })
 
         if price and target:
@@ -169,11 +151,31 @@ def gerar_resumo_empresas_destaque_com_base_nas_noticias(carteira, setores_bull,
             if upside and upside > 15:
                 empresas_destaque.append({
                     "Ticker": ticker,
-                    "Retorno Médio em Anos Similares (%)": retorno_medio if retorno_medio else "Não disponível",
                     "Motivo": "Preço alvo sugere um alto potencial de valorização."
                 })
 
     return empresas_destaque
+
+# Streamlit Interface
+st.set_page_config(page_title="Sugestão de Alocação Inteligente", layout="wide")
+st.title("📊 Sugestão de Alocação Baseada em Notícias e Carteira Atual")
+
+# Carregar dados de anos semelhantes (usando o Banco Central)
+anos_similares = coletar_dados_banco_central()
+
+# Exibir anos semelhantes
+st.markdown(f"**Anos Semelhantes ao Cenário Atual (Baseado em Dados Econômicos):** {', '.join(anos_similares)}")
+
+# Coletar notícias econômicas
+api_key = st.secrets["GNEWS_API_KEY"] if "GNEWS_API_KEY" in st.secrets else "f81e45d8e741c24dfe4971f5403f5a32"
+noticias = noticias_reais(api_key)
+resumo, setores_bull, setores_bear = analisar_cenario_com_noticias(noticias)
+
+# Exibir resumo de notícias e setores
+st.markdown("**Notícias Recentes:**")
+st.markdown(resumo)
+st.markdown("**Setores Favorecidos:** " + ", ".join(setores_bull))
+st.markdown("**Setores com Alerta:** " + ", ".join(setores_bear))
 
 # Upload da carteira
 st.header("📁 Sua Carteira Atual")
@@ -197,8 +199,20 @@ carteira_manual = [
     {"Ticker": "TAEE3.SA", "Peso (%)": 3},
 ]
 
-st.markdown("### Ou adicione ativos manualmente clicando no botão abaixo")
-carteira = pd.DataFrame(carteira_manual)
+carteira_csv = pd.read_csv(arquivo) if arquivo else pd.DataFrame()
+carteira_manual_df = pd.DataFrame(carteira_manual)
+carteira = pd.concat([carteira_csv, carteira_manual_df], ignore_index=True)
 
-# Exibir as informações
-st.write(carteira)
+if not carteira.empty:
+    st.dataframe(carteira)
+    
+    # Ajustar alocação com base nas notícias e no cenário
+    df_sugestoes = ajustar_alocacao(carteira, setores_bull, setores_bear)
+    st.markdown("### Sugestões de Alocação de Ativos:")
+    st.dataframe(df_sugestoes)
+
+    # Resumo das empresas em oportunidade
+    empresas_destaque = gerar_resumo_empresas_oportunidade(carteira, setores_bull, setores_bear)
+    st.markdown("### Empresas com Oportunidade de Investimento:")
+    for empresa in empresas_destaque:
+        st.markdown(f"- **{empresa['Ticker']}**: {empresa['Motivo']}")
