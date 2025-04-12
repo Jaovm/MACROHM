@@ -20,13 +20,13 @@ def get_target_price_yfinance(ticker):
         return None, None
 
 # Análise de desempenho histórico durante anos semelhantes ao cenário atual
-def analise_historica_anos_similares(ticker, anos_semelhantes):
+def analise_historica_anos_similares(ticker, anos_simelhantes):
     try:
         stock = yf.Ticker(ticker)
         hoje = datetime.datetime.today().strftime('%Y-%m-%d')
         hist = stock.history(start="2017-01-01", end=hoje)["Close"]
         retornos = {}
-        for ano in anos_semelhantes:
+        for ano in anos_simelhantes:
             dados_ano = hist[hist.index.year == ano]
             if not dados_ano.empty:
                 retorno = dados_ano.pct_change().sum() * 100
@@ -197,3 +197,21 @@ if not carteira.empty:
 
     st.write(f"**Total Peso Sugerido:** 100%")
     st.dataframe(df_sugestoes)
+
+    # Resumo das empresas em oportunidade
+    empresas_oportunidade = []
+    for i, row in df_sugestoes.iterrows():
+        if row["Recomendação"] == "Aumentar" and row["Peso Sugerido (%)"] > 5:  # Filtra as empresas com recomendação para aumentar e com peso sugerido relevante
+            empresas_oportunidade.append({
+                "Ticker": row["Ticker"],
+                "Preço Atual": row["Preço Atual"],
+                "Preço Alvo": row["Preço Alvo"],
+                "Peso Sugerido (%)": row["Peso Sugerido (%)"]
+            })
+    
+    if empresas_oportunidade:
+        st.header("📈 Empresas em Oportunidade")
+        df_oportunidade = pd.DataFrame(empresas_oportunidade)
+        st.dataframe(df_oportunidade)
+    else:
+        st.markdown("Não há empresas em oportunidade com base nos critérios de recomendação.")
