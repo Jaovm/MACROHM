@@ -4,3 +4,4 @@ yfinance
 numpy
 scikit-learn
 TextBlob
+build-essential
