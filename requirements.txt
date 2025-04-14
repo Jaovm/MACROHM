@@ -1,7 +1,10 @@
 streamlit
 pandas
-yfinance
-numpy
+requests
+textblob
+vaderSentiment
+spacy
 scikit-learn
-TextBlob
-build-essential
+numpy
+yfinance
+pt-core-news-sm @ https://github.com/explosion/spacy-models/releases/download/pt_core_news_sm-3.5.0/pt_core_news_sm-3.5.0.tar.gz
