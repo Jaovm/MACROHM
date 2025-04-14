@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 import datetime
-import TextBlob
 from textblob import TextBlob
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import spacy
